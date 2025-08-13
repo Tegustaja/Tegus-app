@@ -1,0 +1,22 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tegus_app:latest
+    ports:
+      - "8000:8000"  # Map host port 8000 to container port 8000 (adjust as needed)
+    volumes:
+      - ./:/opt/tegus  # Mount entire project directory
+      - ./tegus/chroma:/opt/tegus/db/chroma  # Persist host chroma DB
+#      - ./tegus/calculation_db:/opt/tegus/db/calculation_db  # Persist host calculation DB
+#      - ./tegus/truefalse_db:/opt/tegus/db/truefalse_db  # Persist host true/false DB
+#      - ./tegus/multiple_choise_db:/opt/tegus/db/multiple_choise_db  # Persist host multiple choice DB
+    env_file:
+      - .env
+    environment:
+      - PYTHONWARNINGS=ignore
+    #command: ["/usr/bin/supervisord"]
+    #command: ["uvicorn --host 0.0.0.0 --port 8000 run:app"]
+    restart: unless-stopped
+    privileged: true

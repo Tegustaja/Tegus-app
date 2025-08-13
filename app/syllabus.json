@@ -1,0 +1,140 @@
+
+{"aine": "Füüsika",
+"klass": 9,
+"eesmargid": [
+    "Arendada huvi füüsika ja teiste loodusteaduste vastu",
+    "Mõista füüsika tähtsust igapäevaelus ja ühiskonna arengus",
+    "Omandada teadmised ja oskused elukestvaks õppimiseks",
+    "Rakendada loodusteaduslikku meetodit probleemide lahendamisel",
+    "Tunda füüsika seoseid tehnoloogia ja tehnikaga",
+    "Väärtustada jätkusuutlikku arengut ja vastutust looduse ees"
+],
+"opiteemad": [
+    {
+        "teema": "Elektriõpetus",
+        "alateemad": [
+            {
+                "nimi": "Elektriline vastastikmõju",
+                "sisu": [
+                    "Kehade elektriseerimine",
+                    "Elektrilaeng ja elementaarlaeng",
+                    "Elektriväli, juhid ja isolaatorid",
+                    "Laetud kehade nähtused looduses ja tehnikas"
+                ],
+                "opitulemused": [
+                    "Kirjeldab elektriseerumise ja elektrilise vastastikmõju olulisi tunnuseid",
+                    "Selgitab elektrilaengu ja elektrivälja mõisteid",
+                    "Viib läbi eksperimendi kehade elektriseerumise ja nendevahelise mõju uurimiseks"
+                ]
+            },
+            {
+                "nimi": "Elektrivool ja vooluring",
+                "sisu": [
+                    "Vabad laengukandjad, elektrivool metallides ja lahustes",
+                    "Voolutugevus ja ampermeeter",
+                    "Pinge, voltmeeter, Ohmi seadus",
+                    "Elektritakistus ja eritakistus",
+                    "Jada- ja rööpühendus"
+                ],
+                "opitulemused": [
+                    "Selgitab elektrivoolu mõistet ja vooluringi tööpõhimõtteid",
+                    "Selgitab Ohmi seadust ja kasutab seda probleemide lahendamisel",
+                    "Mõõdab vooluringi elektrilisi suurusi ja töötleb andmeid"
+                ]
+            },
+            {
+                "nimi": "Elektrivoolu töö ja võimsus",
+                "sisu": [
+                    "Elektrivoolu töö ja võimsus",
+                    "Elektrisoojendusriistad",
+                    "Elektriohutus, lühis, kaitse ja kaitsemaandus"
+                ],
+                "opitulemused": [
+                    "Selgitab elektrivoolu töö ja võimsuse tähendust ning nende mõõtmist",
+                    "Arvutab elektritarvitite energiakulu ja hindab selle vastavust kaitsmete väärtusele",
+                    "Selgitab elektriohutuse põhimõtteid"
+                ]
+            }
+        ]
+    },
+    {
+        "teema": "Magnetnähtused",
+        "alateemad": [
+            {
+                "nimi": "Magnetväli ja elektromagnetism",
+                "sisu": [
+                    "Püsimagnetid ja magnetväli",
+                    "Magnetpoolused ja magnetväli Maa ümber",
+                    "Elektrimootor ja elektrigeneraator kui energiamuundurid",
+                    "Elektromagnet ja voolu magnetiline toime"
+                ],
+                "opitulemused": [
+                    "Kirjeldab magnetvälja omadusi ja seost elektrivooluga",
+                    "Selgitab elektromagneti ja elektrimootori tööpõhimõtteid",
+                    "Viib läbi eksperimendi elektromagneti valmistamiseks ja selle omaduste uurimiseks"
+                ]
+            }
+        ]
+    },
+    {
+        "teema": "Soojusõpetus ja tuumaenergia",
+        "alateemad": [
+            {
+                "nimi": "Aine ehituse mudel",
+                "sisu": [
+                    "Gaas, vedelik, tahkis",
+                    "Aineosakeste liikumine ja temperatuuri seos",
+                    "Soojuslik paisumine",
+                    "Temperatuuriskaalad"
+                ],
+                "opitulemused": [
+                    "Kirjeldab erinevate olekute osakestemudeleid",
+                    "Selgitab temperatuuri ja aineosakeste liikumise seost",
+                    "Selgitab soojuspaisumise nähtust ja rakendusi"
+                ]
+            },
+            {
+                "nimi": "Soojusülekanne",
+                "sisu": [
+                    "Keha soojenemine ja jahtumine",
+                    "Siseenergia ja soojushulk",
+                    "Soojusjuhtivus, konvektsioon ja soojuskiirgus",
+                    "Termodünaamika seadused ja nende rakendused looduses ja tehnikas"
+                ],
+                "opitulemused": [
+                    "Selgitab soojusenergia ülekandemehhanisme",
+                    "Mõõdab ja arvutab soojushulka ning siseenergia muutusi",
+                    "Rakendab termodünaamika põhimõtteid soojusnähtuste analüüsimisel"
+                ]
+            },
+            {
+                "nimi": "Aine olekumuutused",
+                "sisu": [
+                    "Sulamine, tahkumine, aurumine ja kondenseerumine",
+                    "Keemissoojus ja kütuse kütteväärtus",
+                    "Soojustehnilised rakendused"
+                ],
+                "opitulemused": [
+                    "Selgitab erinevaid aine olekumuutusi ja nende seost energiaga",
+                    "Mõõdab ja arvutab aine olekumuutuste soojushulki",
+                    "Selgitab kütuse kütteväärtuse tähendust ja selle rakendusi"
+                ]
+            },
+            {
+                "nimi": "Tuumaenergia",
+                "sisu": [
+                    "Aatomi mudelid ja tuuma ehitus",
+                    "Tuumareaktsioonid: lõhustumine ja süntees",
+                    "Radioaktiivne kiirgus ja kiirguskaitse",
+                    "Aatomielektrijaam ja Päike kui energiaallikas"
+                ],
+                "opitulemused": [
+                    "Selgitab aatomi ehitust ja tuumareaktsioonide olemust",
+                    "Toob näiteid radioaktiivsuse kasutamisest ja ohtudest",
+                    "Mõistab kiirguskaitse põhimõtteid"
+                ]
+            }
+        ]
+    }
+]
+}

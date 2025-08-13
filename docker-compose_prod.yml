@@ -1,0 +1,18 @@
+services:
+  app:
+    image: kaursoon/justcook:tegus_1.0
+    container_name: tegus_app
+    env_file: 
+      - .env
+    ports:
+      - "8000:8000" 
+    volumes:
+      - ${PROJECT_PATH}/config:/opt/tegus/config
+      - ${PROJECT_PATH}/chroma:/opt/chroma
+      - ${PROJECT_PATH}/logs:/opt/logs
+    environment:
+      - PYTHONWARNINGS=ignore
+    command: ["/usr/bin/supervisord"]
+    restart: unless-stopped
+    privileged: true
+

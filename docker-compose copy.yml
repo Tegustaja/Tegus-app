@@ -1,0 +1,30 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tegus-app:latest
+    container_name: tegus_app
+    ports:
+      - "8000:8000"  # Map host port 8000 to container port 8000 (adjust as needed)
+    volumes:
+      - /opt/Tegus/application:/opt/Tegus  # Mount your application code
+      - /opt/Tegus/application/logs:/opt/logs  # Persist logs outside the container
+      - /opt/Tegus/application/supervisor:/opt/supervisor  # Persist supervisor-related files
+      - /opt/Tegus/supervisord.conf:/etc/supervisor/conf.d/supervisor_tegus.conf
+      - /opt/Tegus/supervisor.sock:/var/run/supervisor.sock
+    environment:
+      - GUNICORN_WORKERS=${GUNICORN_WORKERS:-1}
+      - GUNICORN_TIMEOUT_SECONDS=${GUNICORN_TIMEOUT_SECONDS:-120}
+      - GUNICORN_LOG_LEVEL=${GUNICORN_LOG_LEVEL:-info}
+      - GUNICORN_MAX_REQUESTS=${GUNICORN_MAX_REQUESTS:-200}
+      - GUNICORN_MAX_REQUESTS_JITTER=${GUNICORN_MAX_REQUESTS_JITTER:-20}
+      - PYTHONWARNINGS=ignore
+#    command: ["/usr/bin/supervisord"]
+    #command: ["uvicorn --host 0.0.0.0 --port 8000 run:app"]
+    restart: unless-stopped
+    privileged: true
+
+volumes:
+  logs:
+  supervisor:

@@ -1,0 +1,33 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tegus_backend:dev
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/opt/tegus
+      - ./tegus/chroma:/opt/tegus/db/chroma
+    env_file:
+      - .env
+    environment:
+      - PYTHONWARNINGS=ignore
+    command: uvicorn run:app --host 0.0.0.0 --port 8000 --app-dir /opt/tegus --reload
+
+  frontend:
+    image: node:20
+    working_dir: /opt/tegus/tegus-frontend
+    command: bash -lc "npm install && npm run web -- --non-interactive"
+    ports:
+      - "8081:8081"
+      - "19006:19006"
+    env_file:
+      - .env
+    environment:
+      - EXPO_PUBLIC_BACKEND_URL=${EXPO_PUBLIC_BACKEND_URL:-http://backend:8000}
+      - EXPO_PUBLIC_BACKEND_API_KEY=${EXPO_PUBLIC_BACKEND_API_KEY:-}
+    volumes:
+      - ./:/opt/tegus
+    depends_on:
+      - backend 

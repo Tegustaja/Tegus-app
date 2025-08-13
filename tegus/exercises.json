@@ -1,0 +1,23 @@
+[
+    {
+        "question": "A book is lying on a table. Why does it not move?",
+        "topic": "Mehhaanika",
+        "difficulty": "easy",
+        "solution": "The book stays at rest because there is no net force acting on it, as per Newton’s First Law.",
+        "id": "1"
+    },
+    {
+        "question": "A 5kg object is dropped from a height of 10m. Calculate its final velocity before hitting the ground.",
+        "topic": "Kinemaatika",
+        "difficulty": "medium",
+        "solution": "Use the equation v² = u² + 2as, where u=0, a=9.8m/s², and s=10m. The answer is v = 14 m/s",
+        "id": "2"
+    },
+    {
+        "question": "Kui suur jõud mõjub kiirusega 10Mm/s magnetväljas induktsioonijoontega risti liikuvale prootonile, kui B = 0,2T?",
+        "topic": "Lorentzi jõud",
+        "difficulty": "easy",
+        "solution": "F = q*v*B*sinAlpha, prooton liigub induktsioonijoontega risti, seega F = q*v*B, arvudega: F= 1.6*10'-19C * 10'7m/s * 0.2T",
+        "id": "3"
+    }
+]
