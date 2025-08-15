@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import os
@@ -80,7 +80,7 @@ class RecommendationsRequest(BaseModel):
     topics: Optional[List[str]] = None  # Filter by specific topics
 
 @router.get("/topics/{topic_id}/materials", response_model=List[LearningMaterial])
-async def get_topic_materials(topic_id: str, difficulty_level: Optional[str] = None, content_type: Optional[str] = None):
+async def get_topic_materials(topic_id: str, difficulty_level: Optional[str] = Query(None), content_type: Optional[str] = Query(None)):
     """
     Get learning materials for a specific topic
     """

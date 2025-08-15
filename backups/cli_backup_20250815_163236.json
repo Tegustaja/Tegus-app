@@ -1,0 +1,14 @@
+{
+  "backup_name": "cli_backup_20250815_163236",
+  "timestamp": "20250815_163236",
+  "tables": [
+    "profiles"
+  ],
+  "include_data": false,
+  "data": {
+    "profiles": {
+      "structure": "table_exists",
+      "row_count": 0
+    }
+  }
+}

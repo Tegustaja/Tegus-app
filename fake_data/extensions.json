@@ -1,0 +1,20 @@
+[
+  {
+    "id": "3809ab83-69db-48a7-82d1-8037ea76e178",
+    "lesson_id": "e2fbdc04-3869-47f5-8285-0c8a5d6297c1",
+    "user_id": "aaf7c959-2201-4314-8481-be84f8f28050",
+    "extension_type": "lesson_part",
+    "parent_id": null,
+    "extension_reason": "Student needs more practice",
+    "created_at": "2025-08-15T15:41:04.363315"
+  },
+  {
+    "id": "d1a7ebe1-0a1c-45d6-aee6-9494ae427dc7",
+    "lesson_id": "e1334701-078d-4c5d-b427-5b8556d67b17",
+    "user_id": "aaf7c959-2201-4314-8481-be84f8f28050",
+    "extension_type": "lesson_part",
+    "parent_id": null,
+    "extension_reason": "Request for more challenging content",
+    "created_at": "2025-08-15T15:41:04.363319"
+  }
+]

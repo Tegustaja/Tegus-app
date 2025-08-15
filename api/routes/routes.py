@@ -43,6 +43,14 @@ from .settings import router as settings_router
 from .adaptive_learning import router as adaptive_learning_router
 # Import admin routes
 from .admin import router as admin_router
+# Import development utilities routes
+from .dev_utils import router as dev_utils_router
+# Import personalized lesson structure routes
+from .lesson_parts import router as lesson_parts_router
+from .personalized_exercises import router as personalized_exercises_router
+from .subtasks import router as subtasks_router
+from .personalized_progress import router as personalized_progress_router
+from .lesson_extensions import router as lesson_extensions_router
 
 # Create main router
 router = APIRouter()
@@ -67,6 +75,15 @@ router.include_router(settings_router, tags=["Settings"])
 router.include_router(adaptive_learning_router, tags=["Adaptive Learning"])
 # Include admin routes
 router.include_router(admin_router, tags=["Admin"])
+# Include development utilities routes
+router.include_router(dev_utils_router, tags=["Development Utilities"])
+
+# Include personalized lesson structure routes
+router.include_router(lesson_parts_router, tags=["Lesson Parts"])
+router.include_router(personalized_exercises_router, tags=["Personalized Exercises"])
+router.include_router(subtasks_router, tags=["Subtasks"])
+router.include_router(personalized_progress_router, tags=["Personalized Progress"])
+router.include_router(lesson_extensions_router, tags=["Lesson Extensions"])
 
 # Models
 class PlanRequest(BaseModel):

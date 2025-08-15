@@ -1,0 +1,32 @@
+[
+  {
+    "id": "68b8f485-2d6a-4ed4-92db-c5c26ed27477",
+    "email": "johnsonjoshua@example.org",
+    "first_name": "Donald",
+    "last_name": "Garcia",
+    "email_verified": true,
+    "account_status": "active",
+    "created_at": "2025-05-13T03:20:41.995840",
+    "updated_at": "2025-08-02T03:45:34.055476"
+  },
+  {
+    "id": "3eb97185-e3b6-43f8-9c60-423fcda39ef4",
+    "email": "fjohnson@example.org",
+    "first_name": "Jesse",
+    "last_name": "Guzman",
+    "email_verified": true,
+    "account_status": "active",
+    "created_at": "2025-03-08T15:36:08.304832",
+    "updated_at": "2025-08-07T06:37:46.836695"
+  },
+  {
+    "id": "71a6792a-e332-44f2-a51d-d17fa1b99ff2",
+    "email": "lrobinson@example.com",
+    "first_name": "Lisa",
+    "last_name": "Smith",
+    "email_verified": true,
+    "account_status": "active",
+    "created_at": "2025-06-05T22:04:19.925799",
+    "updated_at": "2025-08-06T17:45:21.311810"
+  }
+]

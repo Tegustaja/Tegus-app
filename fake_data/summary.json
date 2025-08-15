@@ -1,0 +1,21 @@
+{
+  "generated_at": "2025-08-15T15:41:04.364666",
+  "summary": {
+    "users": 3,
+    "lessons": 2,
+    "lesson_parts": 6,
+    "exercises": 12,
+    "subtasks": 6,
+    "progress_records": 63,
+    "extensions": 2
+  },
+  "user_ids": [
+    "aaf7c959-2201-4314-8481-be84f8f28050",
+    "1de7f18c-71db-491b-b9da-35c2181ad17e",
+    "20f8c290-d871-43bb-8f99-9d4bbe728732"
+  ],
+  "lesson_ids": [
+    "e2fbdc04-3869-47f5-8285-0c8a5d6297c1",
+    "e1334701-078d-4c5d-b427-5b8556d67b17"
+  ]
+}

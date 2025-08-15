@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import os
@@ -291,7 +291,7 @@ async def update_topic_progress(user_id: str, topic_id: str, request: UpdateProg
         )
 
 @router.get("/leaderboard", response_model=LeaderboardResponse)
-async def get_leaderboard(user_id: Optional[str] = None, limit: int = 50):
+async def get_leaderboard(user_id: Optional[str] = Query(None), limit: int = Query(50, ge=1, le=100)):
     """
     Get leaderboard data
     """
@@ -365,7 +365,7 @@ async def get_leaderboard(user_id: Optional[str] = None, limit: int = 50):
         )
 
 @router.get("/{user_id}/activity")
-async def get_user_activity(user_id: str, days: int = 30):
+async def get_user_activity(user_id: str, days: int = Query(30, ge=1, le=365)):
     """
     Get user activity for the last N days
     """

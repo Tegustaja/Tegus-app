@@ -1,0 +1,34 @@
+I am  building an education app, taht will create personalised lessons. We will use AI tools to generate a lesson based on the learner subject defined.
+I would like to create a structure, that can consist of multiple topics and each topic will have multiple subtasks.
+A subtask could be descriptive or could be explaining something or knoladge validation with exercises. 
+The list of subtasks and topics can be extended during the lesson. 
+I would like to provide progress report while learning.
+I will use fastapi as backend, please propose database models for this task.
+
+Write the output to models.py file
+
+Lesson
+  |-- lesson part 1
+    |-- exercise 1 (Some kind of exercise/explenation)
+    |-- exercise 2
+       |-- lesson subtask (This part is optional and may not be present under all exercises. there may be multiple of these)
+    |-- exercise 3
+    |-- exercise 4
+  |-- lesson part 2
+  ...
+
+
+All of the lessons are unique and can not be shared between other sturdents, they may be copied for a starting point. we will assume all of the lessons are personalised.
+Lessons, lesson parts exercises and subtasks may be extended. this extention will happen only at the request of the student. oterwise the lesson follows the original flow.
+
+
+
+-----------------------
+
+
+Based on the models in models.py please generate the new fastapi endpoints for the added database models. use the existing style and dependencies as in the other fataspi endpoints.
+split the endpoints with reasonable semantics 
+
+----------------------
+
+create fake data generator for the personalized learning lesson, subtasks and exercises.

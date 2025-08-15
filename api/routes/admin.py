@@ -1,11 +1,13 @@
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Query, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import os
 from datetime import datetime, timedelta
 from supabase import create_client, Client
 from dotenv import load_dotenv, find_dotenv
+import json
+import uuid
 
 # Load environment variables
 load_dotenv(find_dotenv())
@@ -44,6 +46,34 @@ class AdminResponse(BaseModel):
 class AdminListResponse(BaseModel):
     admins: List[AdminResponse]
     total: int
+
+class UserProfile(BaseModel):
+    id: str
+    email: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    account_status: str
+    created_at: str
+    updated_at: str
+
+class SystemHealth(BaseModel):
+    database_status: str
+    supabase_status: str
+    api_status: str
+    timestamp: str
+    uptime: Optional[str] = None
+
+class DataStats(BaseModel):
+    total_users: int
+    total_lessons: int
+    total_exercises: int
+    total_subjects: int
+    total_topics: int
+
+class DevelopmentTask(BaseModel):
+    task_type: str
+    description: str
+    parameters: Optional[Dict[str, Any]] = None
 
 # Helper function to get current admin user
 async def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
@@ -86,6 +116,10 @@ async def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+# ============================================================================
+# BASIC ADMIN OPERATIONS
+# ============================================================================
 
 @router.post("/create-admin", response_model=AdminResponse)
 async def create_admin(request: AdminCreateRequest, current_admin: dict = Depends(get_current_admin)):
@@ -215,7 +249,7 @@ async def list_admins(current_admin: dict = Depends(get_current_admin)):
 @router.post("/extend-admin/{user_id}")
 async def extend_admin_privileges(
     user_id: str, 
-    days: int = Field(30, ge=1, le=365),
+    days: int = Query(30, ge=1, le=365),
     current_admin: dict = Depends(get_current_admin)
 ):
     """
@@ -331,4 +365,324 @@ async def get_admin_status(current_admin: dict = Depends(get_current_admin)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get admin status: {str(e)}"
         )
+
+# ============================================================================
+# DEVELOPMENT ADMIN OPERATIONS
+# ============================================================================
+
+@router.get("/dashboard", response_model=Dict[str, Any])
+async def get_admin_dashboard(current_admin: dict = Depends(get_current_admin)):
+    """
+    Get comprehensive admin dashboard data for development
+    """
+    try:
+        # Get system statistics
+        stats = await get_system_statistics()
+        
+        # Get recent activity
+        recent_users = await get_recent_users(limit=10)
+        recent_lessons = await get_recent_lessons(limit=10)
+        
+        # Get system health
+        health = await get_system_health()
+        
+        return {
+            "stats": stats,
+            "recent_users": recent_users,
+            "recent_lessons": recent_lessons,
+            "system_health": health,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get dashboard data: {str(e)}"
+        )
+
+@router.get("/system-health", response_model=SystemHealth)
+async def get_system_health(current_admin: dict = Depends(get_current_admin)):
+    """
+    Get system health status
+    """
+    try:
+        # Check database connectivity
+        try:
+            supabase.table("profiles").select("count", count="exact").limit(1).execute()
+            db_status = "healthy"
+        except Exception:
+            db_status = "unhealthy"
+        
+        # Check Supabase status
+        try:
+            supabase.auth.get_user("test")
+            supabase_status = "healthy"
+        except Exception:
+            supabase_status = "unhealthy"
+        
+        return SystemHealth(
+            database_status=db_status,
+            supabase_status=supabase_status,
+            api_status="healthy",
+            timestamp=datetime.utcnow().isoformat()
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get system health: {str(e)}"
+        )
+
+@router.get("/system-stats", response_model=DataStats)
+async def get_system_statistics(current_admin: dict = Depends(get_current_admin)):
+    """
+    Get system statistics for development monitoring
+    """
+    try:
+        # Get user count
+        users_response = supabase.table("profiles").select("count", count="exact").execute()
+        total_users = users_response.count if hasattr(users_response, 'count') else 0
+        
+        # Get lesson count
+        lessons_response = supabase.table("lessons").select("count", count="exact").execute()
+        total_lessons = lessons_response.count if hasattr(lessons_response, 'count') else 0
+        
+        # Get exercise count
+        exercises_response = supabase.table("exercises").select("count", count="exact").execute()
+        total_exercises = exercises_response.count if hasattr(exercises_response, 'count') else 0
+        
+        # Get subject count
+        subjects_response = supabase.table("subjects").select("count", count="exact").execute()
+        total_subjects = subjects_response.count if hasattr(subjects_response, 'count') else 0
+        
+        # Get topic count
+        topics_response = supabase.table("topics").select("count", count="exact").execute()
+        total_topics = topics_response.count if hasattr(topics_response, 'count') else 0
+        
+        return DataStats(
+            total_users=total_users,
+            total_lessons=total_lessons,
+            total_exercises=total_exercises,
+            total_subjects=total_subjects,
+            total_topics=total_topics
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get system statistics: {str(e)}"
+        )
+
+# ============================================================================
+# USER MANAGEMENT
+# ============================================================================
+
+@router.get("/users", response_model=List[UserProfile])
+async def list_users(
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    current_admin: dict = Depends(get_current_admin)
+):
+    """
+    List users with pagination for development
+    """
+    try:
+        response = supabase.table("profiles").select("*").range(offset, offset + limit - 1).execute()
+        
+        users = []
+        for profile in response.data:
+            user = UserProfile(
+                id=profile["id"],
+                email=profile["email"],
+                first_name=profile.get("first_name"),
+                last_name=profile.get("last_name"),
+                account_status=profile.get("account_status", "active"),
+                created_at=profile["created_at"],
+                updated_at=profile["updated_at"]
+            )
+            users.append(user)
+        
+        return users
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list users: {str(e)}"
+        )
+
+@router.get("/users/{user_id}", response_model=Dict[str, Any])
+async def get_user_details(
+    user_id: str,
+    current_admin: dict = Depends(get_current_admin)
+):
+    """
+    Get detailed user information for development
+    """
+    try:
+        # Get profile
+        profile_response = supabase.table("profiles").select("*").eq("id", user_id).execute()
+        if not profile_response.data:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        profile = profile_response.data[0]
+        
+        # Get related data
+        onboarding_response = supabase.table("onboarding_data").select("*").eq("user_id", user_id).execute()
+        stats_response = supabase.table("user_statistics").select("*").eq("user_id", user_id).execute()
+        streaks_response = supabase.table("user_streaks").select("*").eq("user_id", user_id).execute()
+        
+        return {
+            "profile": profile,
+            "onboarding": onboarding_response.data[0] if onboarding_response.data else None,
+            "statistics": stats_response.data[0] if stats_response.data else None,
+            "streaks": streaks_response.data[0] if streaks_response.data else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get user details: {str(e)}"
+        )
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: str,
+    current_admin: dict = Depends(get_current_admin)
+):
+    """
+    Delete a user (development only - use with caution)
+    """
+    try:
+        # Prevent admin from deleting themselves
+        if user_id == current_admin["id"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete your own account"
+            )
+        
+        # Delete related data first
+        supabase.table("user_streaks").delete().eq("user_id", user_id).execute()
+        supabase.table("user_statistics").delete().eq("user_id", user_id).execute()
+        supabase.table("onboarding_data").delete().eq("user_id", user_id).execute()
+        supabase.table("profiles").delete().eq("id", user_id).execute()
+        
+        # Note: User auth deletion would require Supabase admin privileges
+        
+        return {"message": "User deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete user: {str(e)}"
+        )
+
+# ============================================================================
+# DEVELOPMENT UTILITIES
+# ============================================================================
+
+@router.post("/dev/reset-user-data/{user_id}")
+async def reset_user_data(
+    user_id: str,
+    current_admin: dict = Depends(get_current_admin)
+):
+    """
+    Reset user data for development/testing purposes
+    """
+    try:
+        # Reset statistics
+        supabase.table("user_statistics").update({
+            "total_lessons": 0,
+            "total_study_time_minutes": 0,
+            "total_tests_completed": 0,
+            "updated_at": datetime.utcnow().isoformat()
+        }).eq("user_id", user_id).execute()
+        
+        # Reset streaks
+        supabase.table("user_streaks").update({
+            "current_streak": 0,
+            "longest_streak": 0,
+            "last_study_date": None,
+            "points": 0,
+            "hearts": 5,
+            "updated_at": datetime.utcnow().isoformat()
+        }).eq("user_id", user_id).execute()
+        
+        return {"message": "User data reset successfully"}
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reset user data: {str(e)}"
+        )
+
+@router.post("/dev/generate-test-data")
+async def generate_test_data(
+    background_tasks: BackgroundTasks,
+    current_admin: dict = Depends(get_current_admin)
+):
+    """
+    Generate test data for development
+    """
+    try:
+        # This would trigger the fake data generation script
+        # For now, return a message indicating the feature
+        return {
+            "message": "Test data generation initiated",
+            "note": "Use the scripts/faker_data_generator.py for comprehensive test data generation"
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate test data: {str(e)}"
+        )
+
+@router.get("/dev/table-info/{table_name}")
+async def get_table_info(
+    table_name: str,
+    current_admin: dict = Depends(get_current_admin)
+):
+    """
+    Get table structure and sample data for development
+    """
+    try:
+        # Get sample data
+        response = supabase.table(table_name).select("*").limit(5).execute()
+        
+        return {
+            "table_name": table_name,
+            "sample_data": response.data,
+            "total_rows": len(response.data),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get table info: {str(e)}"
+        )
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+async def get_recent_users(limit: int = 10) -> List[Dict[str, Any]]:
+    """Get recent users for dashboard"""
+    try:
+        response = supabase.table("profiles").select("id, email, first_name, last_name, created_at").order("created_at", desc=True).limit(limit).execute()
+        return response.data
+    except Exception:
+        return []
+
+async def get_recent_lessons(limit: int = 10) -> List[Dict[str, Any]]:
+    """Get recent lessons for dashboard"""
+    try:
+        response = supabase.table("lessons").select("id, title, created_at").order("created_at", desc=True).limit(limit).execute()
+        return response.data
+    except Exception:
+        return []
 

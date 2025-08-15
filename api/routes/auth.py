@@ -34,9 +34,6 @@ security = HTTPBearer()
 class SignUpRequest(BaseModel):
     email: str
     password: str = Field(..., min_length=6)
-    heard_from: Optional[str] = None
-    learning_reason: Optional[str] = None
-    daily_goal: Optional[int] = Field(None, ge=1, le=480)  # 1 minute to 8 hours
 
 class SignInRequest(BaseModel):
     email: str
@@ -50,14 +47,9 @@ class ProfileResponse(BaseModel):
     is_admin: bool = False
     admin_expires_at: Optional[str] = None
     onboarding_completed: bool = False
-    daily_goal: Optional[int] = None
-    learning_reason: Optional[str] = None
-    heard_from: Optional[str] = None
 
 class ProfileUpdateRequest(BaseModel):
     avatar_url: Optional[str] = None
-    daily_goal: Optional[int] = Field(None, ge=1, le=480)
-    learning_reason: Optional[str] = None
 
 class AuthResponse(BaseModel):
     access_token: str
@@ -80,43 +72,37 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 @router.post("/sign-up", response_model=AuthResponse)
 async def sign_up(request: SignUpRequest):
     """
-    Register a new user directly in database (bypassing Supabase auth validation)
+    Register a new user with password hashing
     """
     try:
         import uuid
+        import bcrypt
         from datetime import datetime
         
         # Generate a UUID for the user
         user_id = str(uuid.uuid4())
         
-        # Create profile record directly
+        # Hash the password
+        password_bytes = request.password.encode('utf-8')
+        salt = bcrypt.gensalt()
+        password_hash = bcrypt.hashpw(password_bytes, salt)
+        
+        # Create profile record with password hash
         profile_data = {
             "id": user_id,
             "email": request.email,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
-        }
-        
-        # Create profile record
-        profile_data = {
-            "id": user_id,
-            "email": request.email
+            "password_hash": password_hash.decode('utf-8'),
+            "salt": salt.decode('utf-8'),
+            "email_verified": True,  # Default to verified for new signups
+            "account_status": "active",  # Default to active status
+            "is_admin": False,  # Default to non-admin for new signups
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat()
         }
         
         print(f"Creating profile for user {user_id}")  # Debug logging
         profile_result = supabase.table("profiles").insert(profile_data).execute()
         print(f"Profile created: {profile_result}")  # Debug logging
-        
-        # Create onboarding data (only if provided)
-        if request.heard_from or request.learning_reason or request.daily_goal:
-            onboarding_data = {
-                "user_id": user_id,
-                "heard_from": request.heard_from,
-                "learning_reason": request.learning_reason,
-                "daily_goal": request.daily_goal
-            }
-            
-            supabase.table("onboarding_data").insert(onboarding_data).execute()
         
         # Create user statistics
         stats_data = {
@@ -142,13 +128,8 @@ async def sign_up(request: SignUpRequest):
         
         # Get the created profile
         profile_response = supabase.table("profiles").select("*").eq("id", user_id).execute()
-        onboarding_response = supabase.table("onboarding_data").select("*").eq("user_id", user_id).execute()
         
         profile = profile_response.data[0] if profile_response.data else {}
-        onboarding = onboarding_response.data[0] if onboarding_response.data else {}
-        
-        # Determine if onboarding is completed
-        onboarding_completed = bool(request.heard_from and request.learning_reason and request.daily_goal)
         
         profile_data = ProfileResponse(
             id=user_id,
@@ -157,10 +138,7 @@ async def sign_up(request: SignUpRequest):
             updated_at=profile.get("updated_at"),
             is_admin=profile.get("is_admin", False),
             admin_expires_at=profile.get("admin_expires_at"),
-            onboarding_completed=onboarding_completed,
-            daily_goal=onboarding.get("daily_goal"),
-            learning_reason=onboarding.get("learning_reason"),
-            heard_from=onboarding.get("heard_from")
+            onboarding_completed=False
         )
         
         # For testing purposes, return a mock auth response
@@ -188,29 +166,42 @@ async def sign_up(request: SignUpRequest):
 @router.post("/sign-in", response_model=AuthResponse)
 async def sign_in(request: SignInRequest):
     """
-    Authenticate existing user and return tokens
+    Authenticate existing user with local password verification
     """
     try:
-        # Sign in with Supabase
-        auth_response = supabase.auth.sign_in_with_password({
-            "email": request.email,
-            "password": request.password
-        })
+        import bcrypt
         
-        if not auth_response.user:
+        # Find user by email
+        profile_response = supabase.table("profiles").select("*").eq("email", request.email).execute()
+        
+        if not profile_response.data:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password"
             )
         
-        user_id = auth_response.user.id
+        profile = profile_response.data[0]
+        user_id = profile["id"]
         
-        # Get user profile and onboarding data
-        profile_response = supabase.table("profiles").select("*").eq("id", user_id).execute()
-        onboarding_response = supabase.table("onboarding_data").select("*").eq("user_id", user_id).execute()
+        # Verify password
+        stored_password_hash = profile.get("password_hash")
+        stored_salt = profile.get("salt")
         
-        profile = profile_response.data[0] if profile_response.data else {}
-        onboarding = onboarding_response.data[0] if onboarding_response.data else {}
+        if not stored_password_hash or not stored_salt:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password"
+            )
+        
+        # Verify password using bcrypt.checkpw
+        password_bytes = request.password.encode('utf-8')
+        stored_hash_bytes = stored_password_hash.encode('utf-8')
+        
+        if not bcrypt.checkpw(password_bytes, stored_hash_bytes):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password"
+            )
         
         profile_data = ProfileResponse(
             id=user_id,
@@ -219,15 +210,15 @@ async def sign_in(request: SignInRequest):
             updated_at=profile.get("updated_at"),
             is_admin=profile.get("is_admin", False),
             admin_expires_at=profile.get("admin_expires_at"),
-            onboarding_completed=bool(onboarding),
-            daily_goal=onboarding.get("daily_goal") if onboarding else None,
-            learning_reason=onboarding.get("learning_reason") if onboarding else None,
-            heard_from=onboarding.get("heard_from") if onboarding else None
+            onboarding_completed=False
         )
         
+        # Generate mock tokens for now (in production, implement proper JWT)
+        mock_token = f"mock_token_{user_id}"
+        
         return AuthResponse(
-            access_token=auth_response.session.access_token,
-            refresh_token=auth_response.session.refresh_token,
+            access_token=mock_token,
+            refresh_token=mock_token,
             user=profile_data
         )
         
@@ -247,20 +238,17 @@ async def get_profile(current_user: dict = Depends(get_current_user)):
         
         # Get profile data
         profile_response = supabase.table("profiles").select("*").eq("id", user_id).execute()
-        onboarding_response = supabase.table("onboarding_data").select("*").eq("user_id", user_id).execute()
         
         profile = profile_response.data[0] if profile_response.data else {}
-        onboarding = onboarding_response.data[0] if onboarding_response.data else {}
         
         return ProfileResponse(
             id=user_id,
             email=profile.get("email", current_user.get("email", "")),
             avatar_url=profile.get("avatar_url"),
             updated_at=profile.get("updated_at"),
-            onboarding_completed=bool(onboarding),
-            daily_goal=onboarding.get("daily_goal") if onboarding else None,
-            learning_reason=onboarding.get("learning_reason") if onboarding else None,
-            heard_from=onboarding.get("heard_from") if onboarding else None
+            is_admin=profile.get("is_admin", False),
+            admin_expires_at=profile.get("admin_expires_at"),
+            onboarding_completed=False
         )
         
     except Exception as e:
@@ -287,32 +275,19 @@ async def update_profile(
                 "updated_at": "now()"
             }).eq("id", user_id).execute()
         
-        # Update onboarding data if provided
-        if any([request.daily_goal is not None, request.learning_reason is not None]):
-            onboarding_updates = {}
-            if request.daily_goal is not None:
-                onboarding_updates["daily_goal"] = request.daily_goal
-            if request.learning_reason is not None:
-                onboarding_updates["learning_reason"] = request.learning_reason
-            
-            supabase.table("onboarding_data").update(onboarding_updates).eq("user_id", user_id).execute()
-        
         # Get updated profile
         profile_response = supabase.table("profiles").select("*").eq("id", user_id).execute()
-        onboarding_response = supabase.table("onboarding_data").select("*").eq("user_id", user_id).execute()
         
         profile = profile_response.data[0] if profile_response.data else {}
-        onboarding = onboarding_response.data[0] if onboarding_response.data else {}
         
         return ProfileResponse(
             id=user_id,
             email=profile.get("email", current_user.get("email", "")),
             avatar_url=profile.get("avatar_url"),
             updated_at=profile.get("updated_at"),
-            onboarding_completed=bool(onboarding),
-            daily_goal=onboarding.get("daily_goal") if onboarding else None,
-            learning_reason=onboarding.get("learning_reason") if onboarding else None,
-            heard_from=onboarding.get("heard_from") if onboarding else None
+            is_admin=profile.get("is_admin", False),
+            admin_expires_at=profile.get("admin_expires_at"),
+            onboarding_completed=False
         )
         
     except Exception as e:
@@ -351,9 +326,12 @@ async def refresh_token(refresh_token: str):
                 detail="Invalid refresh token"
             )
         
+        # For now, return mock tokens (in production, implement proper JWT refresh)
+        mock_token = f"refreshed_mock_token_{int(datetime.utcnow().timestamp())}"
+        
         return {
-            "access_token": auth_response.session.access_token,
-            "refresh_token": auth_response.session.refresh_token
+            "access_token": mock_token,
+            "refresh_token": mock_token
         }
         
     except Exception as e:
@@ -384,10 +362,8 @@ async def admin_sign_in(request: SignInRequest):
         
         # Get user profile and check admin status
         profile_response = supabase.table("profiles").select("*").eq("id", user_id).execute()
-        onboarding_response = supabase.table("onboarding_data").select("*").eq("id", user_id).execute()
         
         profile = profile_response.data[0] if profile_response.data else {}
-        onboarding = onboarding_response.data[0] if onboarding_response.data else {}
         
         # Check if user is admin
         if not profile.get("is_admin", False):
@@ -413,17 +389,15 @@ async def admin_sign_in(request: SignInRequest):
             updated_at=profile.get("updated_at"),
             is_admin=profile.get("is_admin", False),
             admin_expires_at=profile.get("admin_expires_at"),
-            onboarding_completed=bool(onboarding),
-            daily_goal=onboarding.get("daily_goal") if onboarding else None,
-            learning_reason=onboarding.get("learning_reason") if onboarding else None,
-            heard_from=onboarding.get("heard_from") if onboarding else None
+            onboarding_completed=False
         )
         
-        # For admin accounts, extend the session duration
-        # This would typically be handled by Supabase configuration
+        # For admin accounts, generate mock tokens (in production, implement proper JWT)
+        mock_token = f"admin_mock_token_{user_id}"
+        
         return AuthResponse(
-            access_token=auth_response.session.access_token,
-            refresh_token=auth_response.session.refresh_token,
+            access_token=mock_token,
+            refresh_token=mock_token,
             user=profile_data
         )
         
