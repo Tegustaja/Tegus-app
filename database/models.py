@@ -128,6 +128,7 @@ class Lesson(Base):
     completed_at = Column(DateTime)
     current_database_index = Column(BigInteger)
     created_at = Column(DateTime, default=datetime.utcnow)
+    plan_status = Column(String, default='creating')  # 'creating', 'ready', 'confirmed', 'in_progress', 'error'
     
     # Relationships
     profile = relationship("Profile", back_populates="lessons")

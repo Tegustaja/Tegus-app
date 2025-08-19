@@ -350,8 +350,9 @@ Desktop.ini
 # Test outputs
 test_*.py
 *_test.py
-tests/output/
-tests/results/
+tests/
+scripts/
+docs/tegus-future-plans-prompts.txt
 
 # Coverage reports
 .coverage

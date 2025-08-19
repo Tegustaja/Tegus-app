@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv, find_dotenv
+from supabase import create_client, Client
 
 # Load environment variables
 load_dotenv(find_dotenv())
@@ -11,9 +12,16 @@ API_KEY = os.getenv("FLASK_API_KEY", "default-keasdfalsfjadsfkdakfkdsy")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
+# Create centralized Supabase client
+if SUPABASE_URL and SUPABASE_KEY:
+    supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+else:
+    supabase_client = None
+    print("Warning: SUPABASE_URL and SUPABASE_KEY not set. Supabase functionality will be disabled.")
+
 # Logging Configuration
 LOGGING_CONFIG = {
-    'filename': '/opt/logs/record.log',
+    'filename': 'logs/record.log',
     'level': 'DEBUG'
 }
 

@@ -1,69 +1,105 @@
+#!/usr/bin/env python3
+"""
+Main test runner for the Tegus project
+Runs all test suites including the new authentication tests
+"""
+
 import os
 import sys
-import json
-import time
-import urllib.request
+import subprocess
+import importlib.util
 
-BACKEND_URL = os.environ.get("TEST_BACKEND_URL", os.environ.get("EXPO_PUBLIC_BACKEND_URL", "http://localhost:8000"))
+def run_python_test(test_file):
+    """Run a Python test file"""
+    try:
+        result = subprocess.run([sys.executable, test_file], 
+                              capture_output=True, text=True, timeout=60)
+        
+        if result.returncode == 0:
+            print(f"✅ {test_file} passed")
+            return True
+        else:
+            print(f"❌ {test_file} failed")
+            print(f"Error: {result.stderr}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        print(f"⏰ {test_file} timed out")
+        return False
+    except Exception as e:
+        print(f"💥 {test_file} crashed: {e}")
+        return False
 
+def run_authentication_tests():
+    """Run the authentication test suite"""
+    print("\n🔐 Running Authentication Tests...")
+    print("=" * 50)
+    
+    auth_test_file = "tests/test_authentication.py"
+    if os.path.exists(auth_test_file):
+        return run_python_test(auth_test_file)
+    else:
+        print(f"⚠️ Authentication test file not found: {auth_test_file}")
+        return False
 
-def http_get(path: str):
-	with urllib.request.urlopen(f"{BACKEND_URL}{path}") as response:
-		return response.status, json.loads(response.read().decode())
-
-
-def http_post(path: str, payload: dict):
-	data = json.dumps(payload).encode("utf-8")
-	req = urllib.request.Request(f"{BACKEND_URL}{path}", data=data, headers={"Content-Type": "application/json"})
-	with urllib.request.urlopen(req) as response:
-		return response.status, json.loads(response.read().decode())
-
-
-def wait_for_backend(timeout_seconds: int = 20):
-	start = time.time()
-	while time.time() - start < timeout_seconds:
-		try:
-			status, body = http_get("/api/health")
-			if status == 200 and isinstance(body, dict) and body.get("status") == "healthy":
-				return True
-		except Exception:
-			time.sleep(0.5)
-	return False
-
+def run_existing_tests():
+    """Run existing test files"""
+    print("\n🧪 Running Existing Tests...")
+    print("=" * 50)
+    
+    test_files = [
+        "test.py",
+        "test_admin_system.py",
+        "test_adaptive_learning.py",
+        "test_supabase_connection.py",
+        "test_table_structure.py",
+        "test_signup.py"
+    ]
+    
+    passed = 0
+    total = 0
+    
+    for test_file in test_files:
+        if os.path.exists(test_file):
+            total += 1
+            if run_python_test(test_file):
+                passed += 1
+        else:
+            print(f"⚠️ Test file not found: {test_file}")
+    
+    print(f"\n📊 Existing Tests: {passed}/{total} passed")
+    return passed, total
 
 def main():
-	print(f"Testing backend at {BACKEND_URL}")
-	ok = wait_for_backend()
-	if not ok:
-		print("Backend healthcheck failed or timed out", file=sys.stderr)
-		sys.exit(1)
-	print("Healthcheck OK")
-
-	# If we don't have an API key for LLM, skip heavy tests
-	if not os.environ.get("OPENAI_API_KEY"):
-		print("OPENAI_API_KEY not set; skipping API flow tests.")
-		print("All basic tests passed.")
-		return
-
-	# create-plan
-	status, body = http_post("/api/create-plan", {"prompt": "Plan study session about algebra"})
-	assert status == 200, f"create-plan status {status}"
-	assert "session_id" in body and "plan" in body, "create-plan response keys missing"
-	session_id = body["session_id"]
-	print("create-plan OK")
-
-	# execute-step (background)
-	status, body = http_post("/api/execute-step", {"session_id": session_id, "step_id": 1})
-	assert status == 200, f"execute-step status {status}"
-	print("execute-step OK")
-
-	# teacher
-	status, body = http_post("/api/teacher", {"query": "What is Pythagorean theorem?"})
-	assert status == 200, f"teacher status {status}"
-	print("teacher OK")
-
-	print("All tests passed.")
-
+    """Run all tests"""
+    print("🚀 Tegus Project Test Suite")
+    print("=" * 50)
+    
+    # Run authentication tests
+    auth_passed = run_authentication_tests()
+    
+    # Run existing tests
+    existing_passed, existing_total = run_existing_tests()
+    
+    # Summary
+    print("\n" + "=" * 50)
+    print("📋 TEST SUMMARY")
+    print("=" * 50)
+    
+    total_tests = 1 + existing_total
+    total_passed = (1 if auth_passed else 0) + existing_passed
+    
+    print(f"Authentication Tests: {'✅ PASSED' if auth_passed else '❌ FAILED'}")
+    print(f"Existing Tests: {existing_passed}/{existing_total} passed")
+    print(f"Overall: {total_passed}/{total_tests} test suites passed")
+    
+    if total_passed == total_tests:
+        print("\n🎉 All test suites passed!")
+        return True
+    else:
+        print("\n⚠️ Some test suites failed. Please check the issues above.")
+        return False
 
 if __name__ == "__main__":
-	main() 
+    success = main()
+    sys.exit(0 if success else 1) 

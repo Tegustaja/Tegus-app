@@ -4,7 +4,7 @@ from pydantic import Field
 
 from app.agent.toolcall import ToolCallAgent
 from app.prompt.swe import NEXT_STEP_TEMPLATE, SYSTEM_PROMPT
-from app.tool import Bash, StrReplaceEditor, Terminate, ToolCollection
+from app.tool import Terminate, ToolCollection
 
 
 class SWEAgent(ToolCallAgent):
@@ -17,19 +17,18 @@ class SWEAgent(ToolCallAgent):
     next_step_prompt: str = NEXT_STEP_TEMPLATE
 
     available_tools: ToolCollection = ToolCollection(
-        Bash(), StrReplaceEditor(), Terminate()
+        Terminate()
     )
     special_tool_names: List[str] = Field(default_factory=lambda: [Terminate().name])
 
     max_steps: int = 30
 
-    bash: Bash = Field(default_factory=Bash)
     working_dir: str = "."
 
     async def think(self) -> bool:
         """Process current state and decide next action"""
-        # Update working directory
-        self.working_dir = await self.bash.execute("pwd")
+        # Set default working directory
+        self.working_dir = "."
         self.next_step_prompt = self.next_step_prompt.format(
             current_dir=self.working_dir
         )

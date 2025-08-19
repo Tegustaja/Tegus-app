@@ -4,9 +4,11 @@ from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime
 import logging
+from sqlalchemy.orm import Session
 
 from app.logger import logger
-from app.backtofront.connect_db import get_data
+from database.config import get_db
+from database.models import DiagnosticEvent, StudentTopicState
 
 router = APIRouter()
 
@@ -188,51 +190,49 @@ async def start_diagnostic(request: DiagnosticStartRequest):
         raise HTTPException(status_code=500, detail="Failed to start diagnostic")
 
 @router.post("/events", response_model=EventResponse)
-async def submit_event(event: EventSubmission):
+async def submit_event(event: EventSubmission, db: Session = Depends(get_db)):
     """Submit a learning event and update metrics"""
     try:
         # Get current topic state
-        db = get_data()
-        
-        # Query current state
-        query = """
-        SELECT * FROM student_topic_state 
-        WHERE student_id = %s AND topic_id = %s
-        """
-        result = db.execute(query, (event.student_id, event.topic_id))
-        current_state = result.fetchone()
+        current_state = db.query(StudentTopicState).filter(
+            StudentTopicState.student_id == event.student_id,
+            StudentTopicState.topic_id == event.topic_id
+        ).first()
         
         if not current_state:
             # Initialize new state
-            current_state = {
-                'mastery': 0.0,
-                'correct_ema': 0.0,
-                'volatility': 0.5,
-                'pace': 0.5,
-                'calibration': 0.5
-            }
+            current_state = StudentTopicState(
+                student_id=event.student_id,
+                topic_id=event.topic_id,
+                mastery=0.0,
+                correct_ema=0.0,
+                volatility=0.5,
+                pace=0.5,
+                calibration=0.5
+            )
+            db.add(current_state)
         
         # Update metrics
         mastery = update_mastery(
-            current_state.get('mastery', 0.0),
+            current_state.mastery,
             event.correct,
             event.latency_ms,
             event.confidence
         )
         
         correct_ema, volatility, stability = update_stability(
-            current_state.get('correct_ema', 0.0),
-            current_state.get('volatility', 0.5),
+            current_state.correct_ema,
+            current_state.volatility,
             event.correct
         )
         
         pace = update_pace(
-            current_state.get('pace', 0.5),
+            current_state.pace,
             event.latency_ms
         )
         
         calibration = update_calibration(
-            current_state.get('calibration', 0.5),
+            current_state.calibration,
             event.correct,
             event.confidence
         )
@@ -240,46 +240,32 @@ async def submit_event(event: EventSubmission):
         learning_index = compute_learning_index(mastery, stability, pace, calibration)
         difficulty_band_val = difficulty_band(mastery)
         
-        # Save updated state
-        if current_state.get('student_id'):
-            # Update existing
-            update_query = """
-            UPDATE student_topic_state SET
-                mastery = %s, correct_ema = %s, volatility = %s, pace = %s, 
-                calibration = %s, learning_index = %s, difficulty_band = %s,
-                last_seen_at = NOW(), updated_at = NOW()
-            WHERE student_id = %s AND topic_id = %s
-            """
-            db.execute(update_query, (
-                mastery, correct_ema, volatility, pace, calibration,
-                learning_index, difficulty_band_val, event.student_id, event.topic_id
-            ))
-        else:
-            # Insert new
-            insert_query = """
-            INSERT INTO student_topic_state (
-                student_id, topic_id, mastery, correct_ema, volatility, pace,
-                calibration, learning_index, difficulty_band, last_seen_at, updated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-            """
-            db.execute(insert_query, (
-                event.student_id, event.topic_id, mastery, correct_ema, volatility,
-                pace, calibration, learning_index, difficulty_band_val
-            ))
+        # Update state
+        current_state.mastery = mastery
+        current_state.correct_ema = correct_ema
+        current_state.volatility = volatility
+        current_state.pace = pace
+        current_state.calibration = calibration
+        current_state.learning_index = learning_index
+        current_state.difficulty_band = difficulty_band_val
+        current_state.last_seen_at = datetime.now()
+        current_state.updated_at = datetime.now()
         
         # Save event
-        event_query = """
-        INSERT INTO diagnostic_events (
-            id, student_id, subject_id, topic_id, event_type, correct, latency_ms,
-            confidence, item_id, difficulty, result_metadata, created_at
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-        """
-        db.execute(event_query, (
-            str(uuid.uuid4()), event.student_id, event.subject, event.topic_id,
-            event.event_type, event.correct, event.latency_ms, event.confidence,
-            event.item_id, event.difficulty, event.result_metadata
-        ))
-        
+        new_event = DiagnosticEvent(
+            id=str(uuid.uuid4()),
+            student_id=event.student_id,
+            subject_id=event.subject,
+            topic_id=event.topic_id,
+            event_type=event.event_type,
+            correct=event.correct,
+            latency_ms=event.latency_ms,
+            confidence=event.confidence,
+            item_id=event.item_id,
+            difficulty=event.difficulty,
+            result_metadata=event.result_metadata
+        )
+        db.add(new_event)
         db.commit()
         
         return EventResponse(
@@ -315,29 +301,24 @@ async def start_lesson(request: LessonStartRequest):
         raise HTTPException(status_code=500, detail="Failed to start lesson")
 
 @router.post("/lesson/next", response_model=LessonTurn)
-async def next_lesson_turn(request: LessonNextRequest):
+async def next_lesson_turn(request: LessonNextRequest, db: Session = Depends(get_db)):
     """Get the next lesson turn based on previous results"""
     try:
         # Get recent events to decide mode
-        db = get_data()
-        query = """
-        SELECT event_type, correct, latency_ms, confidence 
-        FROM diagnostic_events 
-        WHERE student_id = %s AND topic_id = %s 
-        ORDER BY created_at DESC LIMIT 5
-        """
-        result = db.execute(query, (request.student_id, request.topic_id))
-        recent_events = result.fetchall()
+        recent_events = db.query(DiagnosticEvent).filter(
+            DiagnosticEvent.student_id == request.student_id,
+            DiagnosticEvent.topic_id == request.topic_id
+        ).order_by(DiagnosticEvent.created_at.desc()).limit(5).all()
         
         # Convert to dict format for decision logic
         recent_dicts = [
             {
-                'event_type': row[0],
-                'correct': row[1],
-                'latency_ms': row[2],
-                'confidence': row[3]
+                'event_type': e.event_type,
+                'correct': e.correct,
+                'latency_ms': e.latency_ms,
+                'confidence': e.confidence
             }
-            for row in recent_events
+            for e in recent_events
         ]
         
         mode = decide_next_mode(recent_dicts)
@@ -358,18 +339,13 @@ async def next_lesson_turn(request: LessonNextRequest):
         raise HTTPException(status_code=500, detail="Failed to get next lesson turn")
 
 @router.get("/metrics/topic")
-async def get_topic_metrics(student_id: str, topic_id: str):
+async def get_topic_metrics(student_id: str, topic_id: str, db: Session = Depends(get_db)):
     """Get current metrics for a student-topic combination"""
     try:
-        db = get_data()
-        query = """
-        SELECT mastery, correct_ema, volatility, pace, calibration, 
-               learning_index, difficulty_band
-        FROM student_topic_state 
-        WHERE student_id = %s AND topic_id = %s
-        """
-        result = db.execute(query, (student_id, topic_id))
-        state = result.fetchone()
+        state = db.query(StudentTopicState).filter(
+            StudentTopicState.student_id == student_id,
+            StudentTopicState.topic_id == topic_id
+        ).first()
         
         if not state:
             return {
@@ -382,15 +358,15 @@ async def get_topic_metrics(student_id: str, topic_id: str):
             }
         
         # Calculate stability from volatility
-        stability = max(0, 100 - (state[2] * 100))  # volatility is 0-1
+        stability = max(0, 100 - (state.volatility * 100))  # volatility is 0-1
         
         return {
-            "mastery": round(state[0] * 100, 1),
+            "mastery": round(state.mastery * 100, 1),
             "stability": round(stability, 1),
-            "pace": round(state[3] * 100, 1),
-            "calibration": round(state[4] * 100, 1),
-            "learning_index": state[5],
-            "difficulty_band": state[6]
+            "pace": round(state.pace * 100, 1),
+            "calibration": round(state.calibration * 100, 1),
+            "learning_index": state.learning_index,
+            "difficulty_band": state.difficulty_band
         }
     
     except Exception as e:

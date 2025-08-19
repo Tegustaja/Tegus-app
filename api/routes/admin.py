@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timedelta
 from supabase import create_client, Client
 from dotenv import load_dotenv, find_dotenv
+
 
 # Load environment variables
 load_dotenv(find_dotenv())
@@ -215,7 +216,7 @@ async def list_admins(current_admin: dict = Depends(get_current_admin)):
 @router.post("/extend-admin/{user_id}")
 async def extend_admin_privileges(
     user_id: str, 
-    days: int = Field(30, ge=1, le=365),
+    days: int = Query(30, ge=1, le=365),
     current_admin: dict = Depends(get_current_admin)
 ):
     """

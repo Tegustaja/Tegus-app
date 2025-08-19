@@ -1,185 +1,194 @@
-from fastapi import APIRouter, HTTPException, Depends, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import APIRouter, HTTPException, Depends, status, Header
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import List, Optional
 import os
-from datetime import datetime
+import jwt
+import datetime
 from supabase import create_client, Client
 from dotenv import load_dotenv, find_dotenv
+
+# Import centralized Supabase client
+from ..config import supabase_client
+from app.logger import logger
 
 # Load environment variables
 load_dotenv(find_dotenv())
 
 # Create router
-router = APIRouter()
+router = APIRouter(prefix="/auth")
 
-# Supabase client
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-print(f"SUPABASE_URL: {SUPABASE_URL}")  # Debug logging
-print(f"SUPABASE_KEY: {SUPABASE_KEY[:20] if SUPABASE_KEY else 'None'}...")  # Debug logging
-
-if not SUPABASE_URL or not SUPABASE_KEY:
-    raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set")
-
-# Create Supabase client
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-print("Supabase client created successfully")  # Debug logging
-
-# Security
-security = HTTPBearer()
+# Check if Supabase client is available
+if not supabase_client:
+    raise ValueError("Supabase client not configured. Please check SUPABASE_URL and SUPABASE_KEY environment variables.")
 
 # Models
-class SignUpRequest(BaseModel):
-    email: str
-    password: str = Field(..., min_length=6)
-    heard_from: Optional[str] = None
-    learning_reason: Optional[str] = None
-    daily_goal: Optional[int] = Field(None, ge=1, le=480)  # 1 minute to 8 hours
-
 class SignInRequest(BaseModel):
     email: str
     password: str
 
-class ProfileResponse(BaseModel):
-    id: str
+class SignUpRequest(BaseModel):
     email: str
-    avatar_url: Optional[str] = None
-    updated_at: Optional[str] = None
-    is_admin: bool = False
-    admin_expires_at: Optional[str] = None
-    onboarding_completed: bool = False
-    daily_goal: Optional[int] = None
-    learning_reason: Optional[str] = None
-    heard_from: Optional[str] = None
-
-class ProfileUpdateRequest(BaseModel):
-    avatar_url: Optional[str] = None
-    daily_goal: Optional[int] = Field(None, ge=1, le=480)
-    learning_reason: Optional[str] = None
+    password: str
+    full_name: Optional[str] = None
 
 class AuthResponse(BaseModel):
     access_token: str
     refresh_token: str
-    user: ProfileResponse
+    user: dict
 
-# Helper function to get current user
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+class ProfileUpdateRequest(BaseModel):
+    full_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+async def get_current_user(authorization: str = Header(None)) -> dict:
+    """
+    Verify Supabase JWT token and return user info
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authorization header"
+        )
+    
+    token = authorization.replace("Bearer ", "")
+    
     try:
-        # Verify the JWT token with Supabase
-        user = supabase.auth.get_user(credentials.credentials)
-        return user.user
+        # Verify the token with Supabase
+        user_response = supabase_client.auth.get_user(token)
+        
+        if hasattr(user_response, 'error') and user_response.error:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token"
+            )
+        
+        if not hasattr(user_response, 'user') or not user_response.user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token"
+            )
+        
+        # Get user profile from profiles table
+        profile_response = supabase_client.table("profiles").select("*").eq("id", user_response.user.id).execute()
+        
+        if not profile_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User profile not found"
+            )
+        
+        profile = profile_response.data[0]
+        
+        return {
+            "id": profile["id"],
+            "email": profile.get("email", user_response.user.email),
+            "is_admin": profile.get("is_admin", False),
+            "admin_expires_at": profile.get("admin_expires_at"),
+        }
+        
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-            headers={"WWW-Authenticate": "Bearer"},
+            detail="Invalid token"
         )
 
 @router.post("/sign-up", response_model=AuthResponse)
 async def sign_up(request: SignUpRequest):
     """
-    Register a new user directly in database (bypassing Supabase auth validation)
+    Create new user account using Supabase Auth
     """
     try:
-        import uuid
-        from datetime import datetime
+        print(f"🔐 Creating user in Supabase Auth: {request.email}")
         
-        # Generate a UUID for the user
-        user_id = str(uuid.uuid4())
+        # Create user in Supabase Auth
+        auth_response = supabase_client.auth.sign_up({
+            "email": request.email,
+            "password": request.password,
+            "options": {
+                "data": {
+                    "full_name": request.full_name,
+                }
+            }
+        })
         
-        # Create profile record directly
+        print(f"📊 Supabase Auth response: {auth_response}")
+        
+        # Check for errors in the response
+        if hasattr(auth_response, 'error') and auth_response.error:
+            print(f"❌ Supabase Auth error: {auth_response.error}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=auth_response.error.message
+            )
+        
+        # Check if user was created
+        if not hasattr(auth_response, 'data') or not auth_response.data or not auth_response.data.user:
+            print(f"❌ No user data in response: {auth_response}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create user in Supabase Auth"
+            )
+        
+        user_id = auth_response.data.user.id
+        print(f"✅ User created in Supabase Auth with ID: {user_id}")
+        
+        # Create profile in profiles table
         profile_data = {
             "id": user_id,
             "email": request.email,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
+            "full_name": request.full_name,
+            "is_admin": False,
+            "email_verified": False,
+            "account_status": "active",
+            "created_at": datetime.datetime.utcnow().isoformat(),
+            "updated_at": datetime.datetime.utcnow().isoformat()
         }
         
-        # Create profile record
-        profile_data = {
-            "id": user_id,
-            "email": request.email
-        }
+        print(f"📝 Creating profile in profiles table...")
+        profile_response = supabase_client.table("profiles").insert(profile_data).execute()
         
-        print(f"Creating profile for user {user_id}")  # Debug logging
-        profile_result = supabase.table("profiles").insert(profile_data).execute()
-        print(f"Profile created: {profile_result}")  # Debug logging
-        
-        # Create onboarding data (only if provided)
-        if request.heard_from or request.learning_reason or request.daily_goal:
-            onboarding_data = {
-                "user_id": user_id,
-                "heard_from": request.heard_from,
-                "learning_reason": request.learning_reason,
-                "daily_goal": request.daily_goal
-            }
-            
-            supabase.table("onboarding_data").insert(onboarding_data).execute()
-        
-        # Create user statistics
-        stats_data = {
-            "user_id": user_id,
-            "total_lessons": 0,
-            "total_study_time_minutes": 0,
-            "total_tests_completed": 0
-        }
-        
-        supabase.table("user_statistics").insert(stats_data).execute()
-        
-        # Create user streaks
-        streaks_data = {
-            "user_id": user_id,
-            "current_streak": 0,
-            "longest_streak": 0,
-            "last_study_date": None,
-            "points": 0,
-            "hearts": 5
-        }
-        
-        supabase.table("user_streaks").insert(streaks_data).execute()
-        
-        # Get the created profile
-        profile_response = supabase.table("profiles").select("*").eq("id", user_id).execute()
-        onboarding_response = supabase.table("onboarding_data").select("*").eq("user_id", user_id).execute()
-        
-        profile = profile_response.data[0] if profile_response.data else {}
-        onboarding = onboarding_response.data[0] if onboarding_response.data else {}
-        
-        # Determine if onboarding is completed
-        onboarding_completed = bool(request.heard_from and request.learning_reason and request.daily_goal)
-        
-        profile_data = ProfileResponse(
-            id=user_id,
-            email=profile.get("email", request.email),
-            avatar_url=profile.get("avatar_url"),
-            updated_at=profile.get("updated_at"),
-            is_admin=profile.get("is_admin", False),
-            admin_expires_at=profile.get("admin_expires_at"),
-            onboarding_completed=onboarding_completed,
-            daily_goal=onboarding.get("daily_goal"),
-            learning_reason=onboarding.get("learning_reason"),
-            heard_from=onboarding.get("heard_from")
-        )
-        
-        # For testing purposes, return a mock auth response
-        # In production, you'd want to implement proper JWT token generation
-        mock_token = f"mock_token_{user_id}"
-        
-        return AuthResponse(
-            access_token=mock_token,
-            refresh_token=mock_token,
-            user=profile_data
-        )
-        
-    except Exception as e:
-        print(f"Sign-up error: {e}")  # Debug logging
-        if "already registered" in str(e).lower():
+        if hasattr(profile_response, 'error') and profile_response.error:
+            print(f"❌ Profile creation error: {profile_response.error}")
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="User with this email already exists"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create user profile"
             )
+        
+        print(f"✅ Profile created successfully")
+        
+        # Return the session data from Supabase
+        if hasattr(auth_response.data, 'session') and auth_response.data.session:
+            print(f"✅ User has session, returning tokens")
+            return AuthResponse(
+                access_token=auth_response.data.session.access_token,
+                refresh_token=auth_response.data.session.refresh_token,
+                user={
+                    "id": user_id,
+                    "email": request.email,
+                    "full_name": request.full_name,
+                    "is_admin": False,
+                    "created_at": profile_data["created_at"],
+                }
+            )
+        else:
+            # Email confirmation required
+            print(f"ℹ️ Email confirmation required")
+            return AuthResponse(
+                access_token="",
+                refresh_token="",
+                user={
+                    "id": user_id,
+                    "email": request.email,
+                    "full_name": request.full_name,
+                    "is_admin": False,
+                    "created_at": profile_data["created_at"],
+                }
+            )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Unexpected error in sign_up: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create user: {str(e)}"
@@ -188,249 +197,269 @@ async def sign_up(request: SignUpRequest):
 @router.post("/sign-in", response_model=AuthResponse)
 async def sign_in(request: SignInRequest):
     """
-    Authenticate existing user and return tokens
+    Authenticate user using Supabase Auth
     """
     try:
+        print(f"🔐 Signing in user: {request.email}")
+        
         # Sign in with Supabase
-        auth_response = supabase.auth.sign_in_with_password({
+        auth_response = supabase_client.auth.sign_in_with_password({
             "email": request.email,
-            "password": request.password
+            "password": request.password,
         })
         
-        if not auth_response.user:
+        print(f"📊 Supabase Auth response: {auth_response}")
+        
+        # Check for errors in the response
+        if hasattr(auth_response, 'error') and auth_response.error:
+            print(f"❌ Supabase Auth error: {auth_response.error}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password"
+                detail="Invalid login credentials"
             )
         
-        user_id = auth_response.user.id
+        # Check if authentication was successful
+        if not hasattr(auth_response, 'data') or not auth_response.data or not auth_response.data.user or not auth_response.data.session:
+            print(f"❌ No user or session data in response")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Authentication failed"
+            )
         
-        # Get user profile and onboarding data
-        profile_response = supabase.table("profiles").select("*").eq("id", user_id).execute()
-        onboarding_response = supabase.table("onboarding_data").select("*").eq("user_id", user_id).execute()
+        user_id = auth_response.data.user.id
+        print(f"✅ User authenticated successfully: {user_id}")
         
-        profile = profile_response.data[0] if profile_response.data else {}
-        onboarding = onboarding_response.data[0] if onboarding_response.data else {}
+        # Get user profile from profiles table
+        profile_response = supabase_client.table("profiles").select("*").eq("id", user_id).execute()
         
-        profile_data = ProfileResponse(
-            id=user_id,
-            email=profile.get("email", request.email),
-            avatar_url=profile.get("avatar_url"),
-            updated_at=profile.get("updated_at"),
-            is_admin=profile.get("is_admin", False),
-            admin_expires_at=profile.get("admin_expires_at"),
-            onboarding_completed=bool(onboarding),
-            daily_goal=onboarding.get("daily_goal") if onboarding else None,
-            learning_reason=onboarding.get("learning_reason") if onboarding else None,
-            heard_from=onboarding.get("heard_from") if onboarding else None
-        )
+        if not profile_response.data:
+            print(f"❌ User profile not found for ID: {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User profile not found"
+            )
+        
+        profile = profile_response.data[0]
+        print(f"✅ User profile found")
         
         return AuthResponse(
-            access_token=auth_response.session.access_token,
-            refresh_token=auth_response.session.refresh_token,
-            user=profile_data
+            access_token=auth_response.data.session.access_token,
+            refresh_token=auth_response.data.session.refresh_token,
+            user={
+                "id": profile["id"],
+                "email": profile.get("email", request.email),
+                "full_name": profile.get("full_name"),
+                "is_admin": profile.get("is_admin", False),
+                "admin_expires_at": profile.get("admin_expires_at"),
+                "created_at": profile["created_at"],
+            }
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"❌ Unexpected error in sign_in: {e}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Authentication failed: {str(e)}"
         )
 
-@router.get("/profile", response_model=ProfileResponse)
-async def get_profile(current_user: dict = Depends(get_current_user)):
+@router.post("/admin-sign-in", response_model=AuthResponse)
+async def admin_sign_in(request: SignInRequest):
     """
-    Get current user's profile information
+    Authenticate admin user using Supabase Auth
     """
     try:
-        user_id = current_user["id"]
+        print(f"🔐 Admin sign in: {request.email}")
         
-        # Get profile data
-        profile_response = supabase.table("profiles").select("*").eq("id", user_id).execute()
-        onboarding_response = supabase.table("onboarding_data").select("*").eq("user_id", user_id).execute()
+        # Sign in with Supabase
+        auth_response = supabase_client.auth.sign_in_with_password({
+            "email": request.email,
+            "password": request.password,
+        })
         
-        profile = profile_response.data[0] if profile_response.data else {}
-        onboarding = onboarding_response.data[0] if onboarding_response.data else {}
+        print(f"📊 Supabase Auth response: {auth_response}")
         
-        return ProfileResponse(
-            id=user_id,
-            email=profile.get("email", current_user.get("email", "")),
-            avatar_url=profile.get("avatar_url"),
-            updated_at=profile.get("updated_at"),
-            onboarding_completed=bool(onboarding),
-            daily_goal=onboarding.get("daily_goal") if onboarding else None,
-            learning_reason=onboarding.get("learning_reason") if onboarding else None,
-            heard_from=onboarding.get("heard_from") if onboarding else None
+        # Check for errors in the response
+        if hasattr(auth_response, 'error') and auth_response.error:
+            print(f"❌ Supabase Auth error: {auth_response.error}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid login credentials"
+            )
+        
+        # Check if authentication was successful
+        if not hasattr(auth_response, 'data') or not auth_response.data or not auth_response.data.user or not auth_response.data.session:
+            print(f"❌ No user or session data in response")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Authentication failed"
+            )
+        
+        user_id = auth_response.data.user.id
+        print(f"✅ User authenticated successfully: {user_id}")
+        
+        # Get user profile from profiles table
+        profile_response = supabase_client.table("profiles").select("*").eq("id", user_id).execute()
+        
+        if not profile_response.data:
+            print(f"❌ User profile not found for ID: {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User profile not found"
+            )
+        
+        profile = profile_response.data[0]
+        print(f"✅ User profile found")
+        
+        # Check if user is admin
+        if not profile.get("is_admin", False):
+            print(f"❌ User is not an admin")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User is not an admin"
+            )
+        
+        # Check if admin privileges haven't expired
+        if profile.get("admin_expires_at") and profile["admin_expires_at"] < str(datetime.datetime.utcnow()):
+            print(f"❌ Admin privileges have expired")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin privileges have expired"
+            )
+        
+        print(f"✅ Admin authentication successful")
+        
+        return AuthResponse(
+            access_token=auth_response.data.session.access_token,
+            refresh_token=auth_response.data.session.refresh_token,
+            user={
+                "id": profile["id"],
+                "email": profile.get("email", request.email),
+                "full_name": profile.get("full_name"),
+                "is_admin": True,
+                "admin_expires_at": profile.get("admin_expires_at"),
+                "created_at": profile["created_at"],
+            }
         )
         
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Unexpected error in admin_sign_in: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Authentication failed: {str(e)}"
+        )
+
+@router.post("/sign-out")
+async def sign_out(current_user: dict = Depends(get_current_user)):
+    """
+    Sign out user (Supabase handles this automatically)
+    """
+    return {"message": "Signed out successfully"}
+
+@router.get("/profile", response_model=dict)
+async def get_profile(current_user: dict = Depends(get_current_user)):
+    """
+    Get current user profile
+    """
+    try:
+        profile_response = supabase_client.table("profiles").select("*").eq("id", current_user["id"]).execute()
+        
+        if not profile_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User profile not found"
+            )
+        
+        profile = profile_response.data[0]
+        return profile
+        
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch profile: {str(e)}"
         )
 
-@router.put("/profile", response_model=ProfileResponse)
+@router.put("/profile", response_model=dict)
 async def update_profile(
-    request: ProfileUpdateRequest,
+    updates: ProfileUpdateRequest,
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Update current user's profile information
+    Update current user profile
     """
     try:
-        user_id = current_user["id"]
+        update_data = {}
+        if updates.full_name is not None:
+            update_data["full_name"] = updates.full_name
+        if updates.avatar_url is not None:
+            update_data["avatar_url"] = updates.avatar_url
         
-        # Update profile if avatar_url is provided
-        if request.avatar_url is not None:
-            supabase.table("profiles").update({
-                "avatar_url": request.avatar_url,
-                "updated_at": "now()"
-            }).eq("id", user_id).execute()
+        update_data["updated_at"] = datetime.datetime.utcnow().isoformat()
         
-        # Update onboarding data if provided
-        if any([request.daily_goal is not None, request.learning_reason is not None]):
-            onboarding_updates = {}
-            if request.daily_goal is not None:
-                onboarding_updates["daily_goal"] = request.daily_goal
-            if request.learning_reason is not None:
-                onboarding_updates["learning_reason"] = request.learning_reason
-            
-            supabase.table("onboarding_data").update(onboarding_updates).eq("user_id", user_id).execute()
+        profile_response = supabase_client.table("profiles").update(update_data).eq("id", current_user["id"]).execute()
         
-        # Get updated profile
-        profile_response = supabase.table("profiles").select("*").eq("id", user_id).execute()
-        onboarding_response = supabase.table("onboarding_data").select("*").eq("user_id", user_id).execute()
+        if hasattr(profile_response, 'error') and profile_response.error:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update profile"
+            )
         
-        profile = profile_response.data[0] if profile_response.data else {}
-        onboarding = onboarding_response.data[0] if onboarding_response.data else {}
+        return {"message": "Profile updated successfully"}
         
-        return ProfileResponse(
-            id=user_id,
-            email=profile.get("email", current_user.get("email", "")),
-            avatar_url=profile.get("avatar_url"),
-            updated_at=profile.get("updated_at"),
-            onboarding_completed=bool(onboarding),
-            daily_goal=onboarding.get("daily_goal") if onboarding else None,
-            learning_reason=onboarding.get("learning_reason") if onboarding else None,
-            heard_from=onboarding.get("heard_from") if onboarding else None
-        )
-        
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update profile: {str(e)}"
         )
 
-@router.post("/sign-out")
-async def sign_out(current_user: dict = Depends(get_current_user)):
-    """
-    Sign out current user (invalidate tokens)
-    """
-    try:
-        # Supabase handles token invalidation automatically
-        # This endpoint can be used for additional cleanup if needed
-        return {"message": "Successfully signed out"}
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to sign out: {str(e)}"
-        )
-
-@router.post("/refresh")
-async def refresh_token(refresh_token: str):
+@router.post("/refresh", response_model=AuthResponse)
+async def refresh_token(request: dict):
     """
     Refresh access token using refresh token
     """
     try:
-        # Refresh token with Supabase
-        auth_response = supabase.auth.refresh_session(refresh_token)
+        refresh_token_value = request.get("refresh_token")
+        if not refresh_token_value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Refresh token is required"
+            )
         
-        if not auth_response.session:
+        # Refresh the session with Supabase
+        auth_response = supabase_client.auth.refresh_session(refresh_token_value)
+        
+        if hasattr(auth_response, 'error') and auth_response.error:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid refresh token"
             )
         
-        return {
-            "access_token": auth_response.session.access_token,
-            "refresh_token": auth_response.session.refresh_token
-        }
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token"
-        )
-
-@router.post("/admin-sign-in")
-async def admin_sign_in(request: SignInRequest):
-    """
-    Special sign-in for admin accounts with extended authorization
-    """
-    try:
-        # Sign in with Supabase
-        auth_response = supabase.auth.sign_in_with_password({
-            "email": request.email,
-            "password": request.password
-        })
-        
-        if not auth_response.user:
+        if not hasattr(auth_response, 'data') or not auth_response.data or not auth_response.data.session:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to refresh token"
             )
         
-        user_id = auth_response.user.id
-        
-        # Get user profile and check admin status
-        profile_response = supabase.table("profiles").select("*").eq("id", user_id).execute()
-        onboarding_response = supabase.table("onboarding_data").select("*").eq("id", user_id).execute()
-        
-        profile = profile_response.data[0] if profile_response.data else {}
-        onboarding = onboarding_response.data[0] if onboarding_response.data else {}
-        
-        # Check if user is admin
-        if not profile.get("is_admin", False):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Admin privileges required"
-            )
-        
-        # Check if admin privileges have expired
-        admin_expires_at = profile.get("admin_expires_at")
-        if admin_expires_at:
-            expires_at = datetime.fromisoformat(admin_expires_at.replace('Z', '+00:00'))
-            if datetime.now(expires_at.tzinfo) > expires_at:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Admin privileges have expired"
-                )
-        
-        profile_data = ProfileResponse(
-            id=user_id,
-            email=profile.get("email", request.email),
-            avatar_url=profile.get("avatar_url"),
-            updated_at=profile.get("updated_at"),
-            is_admin=profile.get("is_admin", False),
-            admin_expires_at=profile.get("admin_expires_at"),
-            onboarding_completed=bool(onboarding),
-            daily_goal=onboarding.get("daily_goal") if onboarding else None,
-            learning_reason=onboarding.get("learning_reason") if onboarding else None,
-            heard_from=onboarding.get("heard_from") if onboarding else None
-        )
-        
-        # For admin accounts, extend the session duration
-        # This would typically be handled by Supabase configuration
         return AuthResponse(
-            access_token=auth_response.session.access_token,
-            refresh_token=auth_response.session.refresh_token,
-            user=profile_data
+            access_token=auth_response.data.session.access_token,
+            refresh_token=auth_response.data.session.refresh_token,
+            user={
+                "id": auth_response.data.user.id,
+                "email": auth_response.data.user.email,
+            }
         )
         
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to refresh token: {str(e)}"
         ) 
