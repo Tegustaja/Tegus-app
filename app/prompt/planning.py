@@ -1,11 +1,7 @@
-import os
-from supabase import create_client, Client
+import asyncio
+from app.services.prompt_service import get_prompt_service
 
-# Supabase configuration
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-def get_prompt(agent_name):
+async def get_prompt(agent_name):
     """
     Fetch prompt from the database for the specified agent
     
@@ -16,14 +12,11 @@ def get_prompt(agent_name):
         tuple: (system_prompt, user_secondary_prompt)
     """
     try:
-        if not (SUPABASE_URL and SUPABASE_KEY):
-            raise ValueError("Supabase not configured")
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-        response = supabase.table("prompts").select("*").eq("users", agent_name).execute()
-#        response = supabase.table("prompts").select("*").eq("user", agent_name).execute()
+        prompt_service = get_prompt_service()
+        system_prompt, user_prompt = await prompt_service.get_prompt(agent_name)
         
-        if response.data and len(response.data) > 0:
-            return response.data[0]["system_prompt"], response.data[0]["user_secondary_prompt"]
+        if system_prompt and user_prompt:
+            return system_prompt, user_prompt
         else:
             print(f"No prompts found for agent: {agent_name}, using default prompts")
             return DEFAULT_PLANNING_SYSTEM_PROMPT, DEFAULT_NEXT_STEP_PROMPT
@@ -55,5 +48,18 @@ Kui on vaja muudatusi, muutke plaani.
 Kui tunniplaan on täielik ja tõhus, kasutage kohe nuppu "lõpeta".
 """
 
-# Fetch prompts from database
-PLANNING_SYSTEM_PROMPT, NEXT_STEP_PROMPT = get_prompt("planning")
+# Initialize with default prompts - will be updated when get_prompt is called
+PLANNING_SYSTEM_PROMPT = DEFAULT_PLANNING_SYSTEM_PROMPT
+NEXT_STEP_PROMPT = DEFAULT_NEXT_STEP_PROMPT
+
+async def initialize_prompts():
+    """Initialize prompts from database - call this when needed"""
+    global PLANNING_SYSTEM_PROMPT, NEXT_STEP_PROMPT
+    try:
+        system_prompt, user_prompt = await get_prompt("planning")
+        if system_prompt and user_prompt:
+            PLANNING_SYSTEM_PROMPT = system_prompt
+            NEXT_STEP_PROMPT = user_prompt
+    except Exception as e:
+        print(f"Error initializing prompts: {e}")
+        # Keep default prompts

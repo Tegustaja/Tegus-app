@@ -1,18 +1,33 @@
+"""
+True/False Exercise Tool - Migrated to Standardized Architecture
+Generates true/false exercises using LLM based on user queries.
+"""
+
 import os
 import asyncio
 import json
 import re
+import uuid
 from datetime import datetime
-from typing import Optional, List, Dict, Union
+from typing import Optional, List, Dict, Union, Any
 from pydantic import Field
+from dotenv import load_dotenv, find_dotenv
 
-from app.tool.base import BaseTool
+from app.tool.base import (
+    BaseTool, 
+    ToolType, 
+    ExerciseType, 
+    DifficultyLevel, 
+    ContentSubject,
+    ExerciseInput,
+    ExerciseOutput,
+    StandardizedToolResult
+)
 from app.schema import Message
 from app.llm import LLM
 from supabase import create_client, Client
 
 # Load environment variables
-from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv())
 
 # Constants
@@ -33,7 +48,7 @@ def get_prompt(agent_name):
         if not (SUPABASE_URL and SUPABASE_KEY):
             raise ValueError("Supabase not configured")
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-        response = supabase.table("prompts").select("*").eq("users", agent_name).execute()
+        response = supabase.table("prompts").select("*").eq("name", agent_name).execute()
 #        response = supabase.table("prompts").select("*").eq("user", agent_name).execute()
         
         if response.data and len(response.data) > 0:
@@ -87,30 +102,70 @@ Lisa põhjalik selgitus, miks väide on tõene või väär."""
 SYSTEM_PROMPT, USER_PROMPT = get_prompt("true_false_exercise")
 
 class TrueFalseExercise(BaseTool):
+    """
+    True/False exercise tool with standardized input/output handling.
+    Generates true/false exercises using LLM based on user queries.
+    """
+    
+    # Tool identification
     name: str = "true_false_exercise"
-    description: str = "A tool to generate true/false exercises based on a query."
-    session_id: Optional[str] = None
-
+    description: str = "Generate true/false exercises based on a query using LLM"
+    tool_type: ToolType = ToolType.EXERCISE
+    version: str = "2.0.0"
+    
+    # Tool capabilities
+    supported_subjects: List[ContentSubject] = [
+        ContentSubject.PHYSICS, 
+        ContentSubject.CHEMISTRY,
+        ContentSubject.BIOLOGY,
+        ContentSubject.MATH,
+        ContentSubject.GENERAL
+    ]
+    supported_difficulties: List[DifficultyLevel] = [
+        DifficultyLevel.BEGINNER,
+        DifficultyLevel.INTERMEDIATE,
+        DifficultyLevel.ADVANCED
+    ]
+    
+    # Configuration
+    max_execution_time: float = 45.0
     parameters: dict = {
         "type": "object",
         "properties": {
             "query": {
                 "type": "string",
-                "description": "The query describing the type of true/false exercise to generate",
+                "description": "Query describing the type of true/false exercise to generate",
             },
             "session_id": {
                 "type": "string",
-                "description": "The session ID this step belongs to.",
+                "description": "Session ID this step belongs to",
             },
             "step_index": {
                 "type": "integer",
-                "description": "The current step index as a number ",
+                "description": "Current step index (0-based)",
+            },
+            "subject": {
+                "type": "string",
+                "enum": ["physics", "chemistry", "biology", "mathematics", "general"],
+                "description": "Subject category",
+            },
+            "difficulty": {
+                "type": "string",
+                "enum": ["beginner", "intermediate", "advanced"],
+                "description": "Difficulty level",
+            },
+            "topic": {
+                "type": "string",
+                "description": "Specific topic within subject",
             }
         },
         "required": ["query", "session_id", "step_index"],
     }
     
-    supabase: Optional[Client] = Field(default_factory=lambda: create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL and SUPABASE_KEY) else None)
+    # Dependencies
+    supabase: Optional[Client] = Field(
+        default_factory=lambda: create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL and SUPABASE_KEY) else None
+    )
 
     async def execute(self, **kwargs) -> list:
         """

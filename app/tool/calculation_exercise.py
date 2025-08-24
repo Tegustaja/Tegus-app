@@ -1,17 +1,32 @@
+"""
+Calculation Exercise Tool - Migrated to Standardized Architecture
+Generates calculation exercises using LLM based on user queries.
+"""
+
 import os
 import asyncio
 import json
+import uuid
 from datetime import datetime
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Dict, Any
 from pydantic import Field
+from dotenv import load_dotenv, find_dotenv
 
-from app.tool.base import BaseTool
+from app.tool.base import (
+    BaseTool, 
+    ToolType, 
+    ExerciseType, 
+    DifficultyLevel, 
+    ContentSubject,
+    ExerciseInput,
+    ExerciseOutput,
+    StandardizedToolResult
+)
 from app.schema import Message
 from app.llm import LLM
 from supabase import create_client, Client
 
 # Load environment variables
-from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv())
 
 # Constants
@@ -43,64 +58,211 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 #SYSTEM_PROMPT, USER_PROMPT = get_prompt("calculation_exercise")
 
 class CalculationExercise(BaseTool):
+    """
+    Calculation exercise tool with standardized input/output handling.
+    Generates calculation exercises using LLM based on user queries.
+    """
+    
+    # Tool identification
     name: str = "calculation_exercise"
-    description: str = "A tool to generate calculation exercises based on a query."
-    session_id: Optional[str] = None
-
+    description: str = "Generate calculation exercises based on a query using LLM"
+    tool_type: ToolType = ToolType.EXERCISE
+    version: str = "2.0.0"
+    
+    # Tool capabilities
+    supported_subjects: List[ContentSubject] = [
+        ContentSubject.MATH, 
+        ContentSubject.PHYSICS, 
+        ContentSubject.CHEMISTRY,
+        ContentSubject.GENERAL
+    ]
+    supported_difficulties: List[DifficultyLevel] = [
+        DifficultyLevel.BEGINNER,
+        DifficultyLevel.INTERMEDIATE,
+        DifficultyLevel.ADVANCED
+    ]
+    
+    # Configuration
+    max_execution_time: float = 60.0
     parameters: dict = {
         "type": "object",
         "properties": {
             "query": {
                 "type": "string",
-                "description": "The query describing the type of calculation exercise to generate",
+                "description": "Query describing the type of calculation exercise to generate",
             },
             "session_id": {
                 "type": "string",
-                "description": "The session ID this step belongs to.",
+                "description": "Session ID this step belongs to",
             },
             "step_index": {
                 "type": "integer",
-                "description": "The current step index as a number ",
+                "description": "Current step index (0-based)",
+            },
+            "subject": {
+                "type": "string",
+                "enum": ["mathematics", "physics", "chemistry", "general"],
+                "description": "Subject category",
+            },
+            "difficulty": {
+                "type": "string",
+                "enum": ["beginner", "intermediate", "advanced"],
+                "description": "Difficulty level",
+            },
+            "topic": {
+                "type": "string",
+                "description": "Specific topic within subject",
             }
         },
         "required": ["query", "session_id", "step_index"],
     }
     
-    supabase: Optional[Client] = Field(default_factory=lambda: create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL and SUPABASE_KEY) else None)
+    # Dependencies
+    supabase: Optional[Client] = Field(
+        default_factory=lambda: create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL and SUPABASE_KEY) else None
+    )
 
-    async def execute(self, **kwargs) -> list:
-        """
-        Generates calculation exercises based on the query using LLM.
-        Also stores the results in the database.
-        
-        Args:
-            **kwargs: Keyword arguments containing:
-                - query: The query string describing the type of exercise to generate
-                - session_id: The UUID of the session
-                - step_index: The current step index as a number (0-based)
-        """
-        print("DEBUG: Starting CalculationExercise.execute()")
-        
-        # Extract and validate parameters
-        query = kwargs.get("query")
+    def _validate_input(self, kwargs: dict) -> ExerciseInput:
+        """Validate and convert input to ExerciseInput model."""
+        # Extract required fields
         session_id = kwargs.get("session_id")
         step_index = kwargs.get("step_index")
+        query = kwargs.get("query")
         
-        print(f"DEBUG: Parameters - query: {query}, session_id: {session_id}, step_index: {step_index}")
+        # Validate required fields
+        if not all([session_id, step_index is not None, query]):
+            raise ValueError("Missing required parameters: session_id, step_index, query")
         
-        # Validate parameters
-        if not all([query, session_id, step_index is not None]):
-            print("DEBUG: Missing required parameters")
-            return ["Error: Missing required parameters"]
+        # Create ExerciseInput with defaults for optional fields
+        return ExerciseInput(
+            session_id=session_id,
+            step_index=step_index,
+            query=query,
+            subject=ContentSubject(kwargs.get("subject", "mathematics")),
+            difficulty=DifficultyLevel(kwargs.get("difficulty", "intermediate")),
+            topic=kwargs.get("topic"),
+            user_id=kwargs.get("user_id"),
+            custom_prompt=kwargs.get("custom_prompt")
+        )
+
+    async def execute(self, input_data: ExerciseInput) -> ExerciseOutput:
+        """
+        Execute the calculation exercise tool with standardized input/output.
+        
+        Args:
+            input_data: Validated ExerciseInput containing all necessary parameters
+            
+        Returns:
+            ExerciseOutput with structured exercise data
+        """
+        
+        # Generate unique exercise ID
+        exercise_id = str(uuid.uuid4())
+        
+        print("DEBUG: Starting CalculationExercise.execute()")
+        print(f"DEBUG: Parameters - query: {input_data.query}, session_id: {input_data.session_id}, step_index: {input_data.step_index}")
         
         try:
             # Generate calculation exercise with separated components
-            exercise_data = await self._generate_exercise_components(query)
+            exercise_data = await self._generate_exercise_components(input_data.query)
             
-            # Store the result in the database
-            await self._store_result(session_id, step_index, exercise_data)
+            # Store result in database (optional)
+            await self._store_result(input_data, exercise_data, exercise_id)
             
-            # Format the full exercise for display
+            # Create standardized output
+            return ExerciseOutput(
+                exercise_id=exercise_id,
+                exercise_type=ExerciseType.CALCULATION,
+                question=exercise_data["question"],
+                options=None,  # Calculation exercises don't have multiple choice options
+                correct_answer=exercise_data["answer"],
+                explanation=exercise_data.get("explanation"),
+                difficulty=input_data.difficulty,
+                subject=input_data.subject,
+                topic=input_data.topic,
+                metadata={
+                    "source": "llm_generation",
+                    "query": input_data.query,
+                    "generation_method": "llm_calculation",
+                    "exercise_id": exercise_id,
+                    "calculation_type": exercise_data.get("calculation_type", "general")
+                }
+            )
+            
+        except Exception as e:
+            print(f"DEBUG: Error in calculation exercise generation: {e}")
+            # Return a fallback exercise if everything fails
+            return ExerciseOutput(
+                exercise_id=exercise_id,
+                exercise_type=ExerciseType.CALCULATION,
+                question=f"Calculate the result for: {input_data.query}",
+                options=None,
+                correct_answer="Please solve this calculation",
+                explanation="This is a fallback exercise generated when the LLM generation failed.",
+                difficulty=input_data.difficulty,
+                subject=input_data.subject,
+                topic=input_data.topic,
+                metadata={
+                    "source": "fallback_generation",
+                    "error": str(e),
+                    "query": input_data.query,
+                    "exercise_id": exercise_id
+                }
+            )
+
+    async def _store_result(self, input_data: ExerciseInput, exercise_data: Dict[str, Any], exercise_id: str) -> bool:
+        """Store the exercise result in the database."""
+        try:
+            if not self.supabase:
+                return False
+            
+            # Get current lesson data
+            response = self.supabase.table("Lessons").select("*").eq("session_id", input_data.session_id).execute()
+            if not response.data:
+                print(f"No lesson found for session_id: {input_data.session_id}")
+                return False
+                
+            lesson_data = response.data[0]
+            step_responses = lesson_data.get("step_responses", [])
+            
+            # Ensure step_index is within bounds
+            if input_data.step_index >= len(step_responses):
+                print(f"Step index {input_data.step_index} is out of bounds")
+                return False
+                
+            # Get existing content and events
+            existing_content = step_responses[input_data.step_index].get("content", {})
+            existing_events = existing_content.get("events", [])
+            
+            # Create new event
+            new_event = {
+                "event_type": "calculation_exercise",
+                "timestamp": datetime.now().isoformat(),
+                "step_index": input_data.step_index,
+                "content": exercise_data,
+                "exercise_id": exercise_id
+            }
+            
+            # Update the specific step response
+            step_responses[input_data.step_index].update({
+                "status": "finished",
+                "step_index": input_data.step_index,
+                "content": {
+                    "tool_type": "calculation_exercise",
+                    "events": existing_events + [new_event],
+                }
+            })
+            
+            # Update the database
+            update_response = self.supabase.table("Lessons").update({
+                "step_responses": step_responses
+            }).eq("session_id", input_data.session_id).execute()
+            
+            return update_response.error is None
+            
+        except Exception as e:
+            print(f"Error storing calculation exercise result: {e}")
+            return False
             formatted_exercise = self._format_for_display(exercise_data)
             
             return [formatted_exercise]

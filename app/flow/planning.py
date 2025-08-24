@@ -121,14 +121,28 @@ class PlanningFlow(BaseFlow):
                 return "No input text provided"
 
             current_plan = await self._create_initial_plan(input_text)
-            if not current_plan or not current_plan.tool_calls:
-                logger.error("Plan creation failed - no tool calls returned")
-                return f"Failed to create plan for: {input_text}"
-
-            args = json.loads(current_plan.tool_calls[0].function.arguments)
-            steps = args.get("steps", [])
+            
+            # Try to extract steps from the LLM response
+            steps = []
+            if current_plan and current_plan.tool_calls:
+                try:
+                    args = json.loads(current_plan.tool_calls[0].function.arguments)
+                    steps = args.get("steps", [])
+                    logger.info(f"Extracted {len(steps)} steps from LLM response")
+                except Exception as e:
+                    logger.error(f"Error extracting steps from LLM response: {e}")
+            
+            # If no steps were extracted, create default steps
+            if not steps:
+                logger.warning("No steps extracted from LLM, creating default plan")
+                steps = [
+                    f"Introduction to {input_text}",
+                    f"Core concepts and fundamentals",
+                    f"Practice exercises and examples", 
+                    f"Review and assessment",
+                    f"Summary and next steps"
+                ]
             plan_data = {
-                "session_id": session_id,
                 "title": input_text,
                 "steps": steps,
                 "step_statuses": ["not_started"] * len(steps),
@@ -147,17 +161,63 @@ class PlanningFlow(BaseFlow):
             
             
             try:
-                result = self.supabase.table("Lessons").insert(plan_data).execute()
-                logger.info(f"Successfully inserted plan data: {result}")
+                # Update the existing lesson record instead of inserting a new one
+                result = self.supabase.table("Lessons").update(plan_data).eq("session_id", self.session_id).execute()
+                logger.info(f"Successfully updated plan data with {len(steps)} steps for session {self.session_id}")
+                
+                # Verify the update worked by checking the result
+                if result.data and len(result.data) > 0:
+                    updated_record = result.data[0]
+                    saved_steps = updated_record.get("steps", [])
+                    logger.info(f"Verified: {len(saved_steps)} steps saved to database")
+                else:
+                    logger.warning("Database update completed but no data returned in response")
+                    
             except Exception as e:
-                logger.error(f"Error inserting data into Supabase: {e}")
+                logger.error(f"Error updating data in Supabase: {e}")
                 raise
                 
             return f"Successfully created plan with {len(steps)} steps"
             
         except Exception as e:
             logger.error(f"Error in PlanningFlow.execute: {str(e)}")
-            return f"Error creating plan: {str(e)}"
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            
+            # Try to create a fallback plan even if there was an error
+            try:
+                fallback_steps = [
+                    f"Introduction to {input_text}",
+                    f"Core concepts and fundamentals", 
+                    f"Practice exercises and examples",
+                    f"Review and assessment"
+                ]
+                
+                fallback_plan_data = {
+                    "title": input_text,
+                    "steps": fallback_steps,
+                    "step_statuses": ["not_started"] * len(fallback_steps),
+                    "step_responses": [
+                        {
+                            "step_index": i + 1,
+                            "status": "not_started",
+                            "content": {
+                                "timestamp": None,
+                                "type": None,
+                                "content": ""
+                            }
+                        } for i in range(len(fallback_steps))
+                    ],
+                    "created_at": datetime.now().isoformat()
+                }
+                
+                self.supabase.table("Lessons").update(fallback_plan_data).eq("session_id", self.session_id).execute()
+                logger.info(f"Created fallback plan with {len(fallback_steps)} steps")
+                return f"Created fallback plan with {len(fallback_steps)} steps due to error: {str(e)}"
+                
+            except Exception as fallback_error:
+                logger.error(f"Fallback plan creation also failed: {fallback_error}")
+                return f"Error creating plan and fallback failed: {str(e)}"
 
     async def _create_initial_plan(self, request: str) -> Optional[AgentState]:
         logger.info(f"Creating initial plan with ID: {self.active_plan_id}")

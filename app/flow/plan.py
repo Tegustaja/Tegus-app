@@ -98,20 +98,31 @@ class PlanningFlow(BaseFlow):
 
     async def create_and_store_plan(self, prompt: str, session_id: str) -> str:
         try:
-            system_message = Message.system_message(
-                """You are Tegus's planning assistant. Create a concise but thorough actionable plan with clear steps
-            Focus on seperating topics covered in the lesson
-            Focus on key milestones and cover topics not key definitions"""
-            )
-            user_message = Message.user_message(
-                f"Create a plan to accomplish: {prompt}"
-            )
-            response = await self.llm.ask_tool(
-                messages=[user_message],
-                system_msgs=[system_message],
-                tools=[self.planning_tool.to_param()],
-                tool_choice=ToolChoice.AUTO,
-            )
+                    # Get the complete planning prompt from the database
+        try:
+            from app.services.prompt_service import get_prompt_service
+            prompt_service = get_prompt_service()
+            system_prompt = await prompt_service.get_combined_prompt("planning")
+            
+            if not system_prompt:
+                # Fallback to default if database prompt not found
+                system_prompt = """Oled Teguse planeerimisassistent. Koosta lühike, kuid põhjalik teostatav plaan selge sammudega.
+                Fokusseeri õppetundis käsitletud teemadele
+                Fokusseeri põhilistele verstapostidele ja katke teemad, mitte põhilisi definitsioone"""
+        except Exception as e:
+            logger.warning(f"Failed to fetch planning prompt from database: {e}")
+            # Fallback to default
+            system_prompt = """Oled Teguse planeerimisassistent. Koosta lühike, kuid põhjalik teostatav plaan selge sammudega.
+            Fokusseeri õppetundis käsitletud teemadele
+            Fokusseeri põhilistele verstapostidele ja katke teemad, mitte põhilisi definitsioone"""
+
+        system_message = Message.system_message(system_prompt)
+                    response = await self.llm.ask_tool(
+            messages=[],
+            system_msgs=[system_message],
+            tools=[self.planning_tool.to_param()],
+            tool_choice=ToolChoice.AUTO,
+        )
 
             if response.tool_calls and response.tool_calls[0].function.name == "planning":
                 args = json.loads(response.tool_calls[0].function.arguments)
@@ -177,7 +188,7 @@ class PlanningFlow(BaseFlow):
                 "updated_at": int(time.time())
             }
             print("**************************")
-            self.supabase.table("lessons").update(update_data).eq("session_id", session_id).execute()
+            self.supabase.table("Lessons").update(update_data).eq("session_id", session_id).execute()
 
             return step_result
 

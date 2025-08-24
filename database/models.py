@@ -7,58 +7,33 @@ from datetime import datetime
 
 Base = declarative_base()
 
-class Profile(Base):
-    __tablename__ = 'profiles'
-    
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    email = Column(String)
-    avatar_url = Column(String)
-    is_admin = Column(Boolean, default=False)
-    admin_expires_at = Column(DateTime)  # When admin privileges expire
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Relationships
-    onboarding_data = relationship("OnboardingData", back_populates="profile", uselist=False)
-    user_statistics = relationship("UserStatistics", back_populates="profile", uselist=False)
-    user_streaks = relationship("UserStreaks", back_populates="profile", uselist=False)
-    lessons = relationship("Lesson", back_populates="profile")
-    user_progress = relationship("UserProgress", back_populates="profile")
-    topic_states = relationship("StudentTopicState", back_populates="profile")
-
 class OnboardingData(Base):
     __tablename__ = 'onboarding_data'
     
     id = Column(Integer, primary_key=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey('profiles.id'))
+    user_id = Column(UUID(as_uuid=True))  # References auth.users.id from Supabase Auth
     heard_from = Column(String)
     learning_reason = Column(String)
     daily_goal = Column(Integer)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Relationships
-    profile = relationship("Profile", back_populates="onboarding_data")
 
 class UserStatistics(Base):
     __tablename__ = 'user_statistics'
     
     id = Column(Integer, primary_key=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey('profiles.id'))
+    user_id = Column(UUID(as_uuid=True))  # References auth.users.id from Supabase Auth
     total_lessons = Column(Integer, default=0)
     total_study_time_minutes = Column(Integer, default=0)
     total_tests_completed = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Relationships
-    profile = relationship("Profile", back_populates="user_statistics")
 
 class UserStreaks(Base):
     __tablename__ = 'user_streaks'
     
     id = Column(Integer, primary_key=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey('profiles.id'))
+    user_id = Column(UUID(as_uuid=True))  # References auth.users.id from Supabase Auth
     current_streak = Column(Integer, default=0)
     longest_streak = Column(Integer, default=0)
     last_study_date = Column(Date)
@@ -66,18 +41,26 @@ class UserStreaks(Base):
     hearts = Column(Integer, default=5)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Relationships
-    profile = relationship("Profile", back_populates="user_streaks")
 
 class Prompt(Base):
     __tablename__ = 'prompts'
     
     id = Column(Integer, primary_key=True)
-    user = Column(String)
-    prompt = Column(Text)
-    response = Column(Text)
+    name = Column(String, nullable=False, unique=True)  # e.g., 'planning', 'true_false_exercise', 'multiple_choice_exercise'
+    description = Column(Text)  # Description of what this prompt is used for
+    system_prompt = Column(Text, nullable=False)  # The system prompt for the AI
+    user_prompt = Column(Text, nullable=False)  # The user prompt template
+    is_active = Column(Boolean, default=True)  # Whether this prompt is currently active
+    version = Column(String, default='1.0')  # Version of the prompt
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Optional fields for future use
+    category = Column(String)  # e.g., 'exercise_generation', 'lesson_planning', 'content_creation'
+    subject = Column(String)  # e.g., 'physics', 'math', 'general'
+    difficulty_level = Column(String)  # e.g., 'beginner', 'intermediate', 'advanced'
+    language = Column(String, default='et')  # Language code (et for Estonian)
+    prompt_metadata = Column(JSON)  # Additional metadata as JSON
 
 class Subject(Base):
     __tablename__ = 'subjects'
@@ -104,6 +87,7 @@ class Topic(Base):
     is_locked = Column(Boolean, default=True)
     icon = Column(String, nullable=False)
     position = Column(String, nullable=False)  # 'left', 'center', 'right'
+    subject_guide = Column(JSON)  # JSONB field for subject-specific guidance
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -113,7 +97,7 @@ class Lesson(Base):
     __tablename__ = 'Lessons'
     
     session_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey('profiles.id'))
+    user_id = Column(UUID(as_uuid=True))  # References auth.users.id from Supabase Auth
     topic_id = Column(String)
     title = Column(Text)
     focus_area = Column(Text)
@@ -131,7 +115,6 @@ class Lesson(Base):
     plan_status = Column(String, default='creating')  # 'creating', 'ready', 'confirmed', 'in_progress', 'error'
     
     # Relationships
-    profile = relationship("Profile", back_populates="lessons")
     messages = relationship("SessionMessage", back_populates="lesson")
 
 class SessionMessage(Base):
@@ -149,7 +132,7 @@ class SessionMessage(Base):
 class UserProgress(Base):
     __tablename__ = 'user_progress'
     
-    user_id = Column(UUID(as_uuid=True), ForeignKey('profiles.id'), primary_key=True)
+    user_id = Column(UUID(as_uuid=True), primary_key=True)  # References auth.users.id from Supabase Auth
     topic_id = Column(String, ForeignKey('topics.id'), primary_key=True)
     progress = Column(Integer, nullable=False)  # 0-100
     last_accessed = Column(DateTime, nullable=False)
@@ -157,14 +140,36 @@ class UserProgress(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
-    profile = relationship("Profile", back_populates="user_progress")
+    topic = relationship("Topic")
+
+class UserTopicCompletion(Base):
+    """Tracks which topics each user has completed"""
+    __tablename__ = 'user_topic_completion'
+    
+    user_id = Column(UUID(as_uuid=True), primary_key=True)  # References auth.users.id from Supabase Auth
+    topic_id = Column(String, ForeignKey('topics.id'), primary_key=True)
+    
+    # Completion tracking
+    is_completed = Column(Boolean, default=False)
+    completed_at = Column(DateTime)
+    progress_percentage = Column(Integer, default=0)  # 0-100
+    
+    # Learning metrics
+    mastery_level = Column(Float, default=0.0)  # 0.0-1.0
+    last_accessed = Column(DateTime, default=datetime.utcnow)
+    
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
     topic = relationship("Topic")
 
 class StudentTopicState(Base):
     """Tracks adaptive learning metrics for each student-topic combination"""
     __tablename__ = 'student_topic_state'
     
-    student_id = Column(UUID(as_uuid=True), ForeignKey('profiles.id'), primary_key=True)
+    student_id = Column(UUID(as_uuid=True), primary_key=True)  # References auth.users.id from Supabase Auth
     topic_id = Column(String, ForeignKey('topics.id'), primary_key=True)
     
     # Core metrics (0-1 scale)
@@ -183,7 +188,6 @@ class StudentTopicState(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    profile = relationship("Profile", back_populates="topic_states")
     topic = relationship("Topic")
 
 class DiagnosticEvent(Base):
@@ -191,7 +195,7 @@ class DiagnosticEvent(Base):
     __tablename__ = 'diagnostic_events'
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    student_id = Column(UUID(as_uuid=True), ForeignKey('profiles.id'), nullable=False)
+    student_id = Column(UUID(as_uuid=True), nullable=False)  # References auth.users.id from Supabase Auth
     subject_id = Column(String, ForeignKey('subjects.id'), nullable=False)
     topic_id = Column(String, ForeignKey('topics.id'), nullable=False)
     
@@ -209,9 +213,40 @@ class DiagnosticEvent(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
-    profile = relationship("Profile")
     subject = relationship("Subject")
     topic = relationship("Topic")
+
+class Tool(Base):
+    """Stores available tools and their configurations"""
+    __tablename__ = 'tools'
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String, nullable=False, unique=True)
+    description = Column(Text, nullable=False)
+    tool_type = Column(String, nullable=False)  # exercise, assessment, content, interaction, utility
+    version = Column(String, default="1.0.0")
+    
+    # Tool capabilities
+    supported_subjects = Column(JSON, default=[])  # List of supported subjects
+    supported_difficulties = Column(JSON, default=[])  # List of supported difficulty levels
+    
+    # Configuration
+    parameters = Column(JSON)  # Tool parameters schema
+    max_execution_time = Column(Float, default=30.0)
+    
+    # Tool status and metadata
+    is_active = Column(Boolean, default=True)
+    is_public = Column(Boolean, default=True)  # Whether tool is available to all users
+    created_by = Column(UUID(as_uuid=True))  # References auth.users.id from Supabase Auth
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Additional metadata
+    tags = Column(JSON, default=[])  # List of tags for categorization
+    usage_count = Column(Integer, default=0)  # Number of times tool has been used
+    last_used = Column(DateTime)
+    documentation_url = Column(String)  # URL to tool documentation
+    source_code_url = Column(String)  # URL to source code if open source
 
 # Create indexes
 Index('ix_onboarding_data_user_id', OnboardingData.user_id)
@@ -225,9 +260,19 @@ Index('ix_session_messages_session_id', SessionMessage.session_id)
 Index('ix_user_progress_user_id', UserProgress.user_id)
 Index('ix_user_progress_topic_id', UserProgress.topic_id)
 
+# New completion tracking indexes
+Index('ix_user_topic_completion_user_id', UserTopicCompletion.user_id)
+Index('ix_user_topic_completion_topic_id', UserTopicCompletion.topic_id)
+
 # Adaptive learning indexes
 Index('ix_student_topic_state_student_id', StudentTopicState.student_id)
 Index('ix_student_topic_state_topic_id', StudentTopicState.topic_id)
 Index('ix_diagnostic_events_student_id', DiagnosticEvent.student_id)
 Index('ix_diagnostic_events_topic_id', DiagnosticEvent.topic_id)
 Index('ix_diagnostic_events_created_at', DiagnosticEvent.created_at)
+
+# Tool indexes
+Index('ix_tools_name', Tool.name)
+Index('ix_tools_tool_type', Tool.tool_type)
+Index('ix_tools_is_active', Tool.is_active)
+Index('ix_tools_created_by', Tool.created_by)

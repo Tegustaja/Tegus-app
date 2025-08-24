@@ -32,7 +32,7 @@ The following SQLAlchemy models are available:
 ### Importing Models
 
 ```python
-from database.models import Profile, Subject, Topic
+from database.models import Subject, Topic
 from database import Base  # For Alembic migrations
 ```
 

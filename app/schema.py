@@ -96,23 +96,23 @@ class Message(BaseModel):
     @classmethod
     def user_message(cls, content: str) -> "Message":
         """Create a user message"""
-        return cls(role=Role.USER, content=content)
+        return cls(role=Role.USER.value, content=content)
 
     @classmethod
     def system_message(cls, content: str) -> "Message":
         """Create a system message"""
-        return cls(role=Role.SYSTEM, content=content)
+        return cls(role=Role.SYSTEM.value, content=content)
 
     @classmethod
     def assistant_message(cls, content: Optional[str] = None) -> "Message":
         """Create an assistant message"""
-        return cls(role=Role.ASSISTANT, content=content)
+        return cls(role=Role.ASSISTANT.value, content=content)
 
     @classmethod
     def tool_message(cls, content: str, name, tool_call_id: str) -> "Message":
         """Create a tool message"""
         return cls(
-            role=Role.TOOL, content=content, name=name, tool_call_id=tool_call_id
+            role=Role.TOOL.value, content=content, name=name, tool_call_id=tool_call_id
         )
 
     @classmethod
@@ -130,7 +130,7 @@ class Message(BaseModel):
             for call in tool_calls
         ]
         return cls(
-            role=Role.ASSISTANT, content=content, tool_calls=formatted_calls, **kwargs
+            role=Role.ASSISTANT.value, content=content, tool_calls=formatted_calls, **kwargs
         )
 
 

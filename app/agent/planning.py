@@ -48,6 +48,15 @@ class PlanningAgent(ToolCallAgent):
             self.available_tools.add_tool(PlanningTool())
 
         return self
+    
+    async def initialize(self):
+        """Initialize the agent with prompts from database"""
+        try:
+            from app.prompt.planning import initialize_prompts
+            await initialize_prompts()
+        except Exception as e:
+            logger.warning(f"Failed to initialize prompts: {e}")
+            # Continue with default prompts
 
     async def think(self) -> bool:
         """Decide the next action based on plan status."""

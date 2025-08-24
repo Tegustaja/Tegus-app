@@ -1,7 +1,6 @@
 # Database package
 from .models import (
     Base,
-    Profile,
     OnboardingData,
     UserStatistics,
     UserStreaks,
@@ -10,13 +9,15 @@ from .models import (
     Topic,
     Lesson,
     SessionMessage,
-    UserProgress
+    UserProgress,
+    UserTopicCompletion,
+    StudentTopicState,
+    DiagnosticEvent
 )
 from .config import get_db, get_session_local, get_engine
 
 __all__ = [
     'Base',
-    'Profile',
     'OnboardingData',
     'UserStatistics',
     'UserStreaks',
@@ -26,6 +27,9 @@ __all__ = [
     'Lesson',
     'SessionMessage',
     'UserProgress',
+    'UserTopicCompletion',
+    'StudentTopicState',
+    'DiagnosticEvent',
     'get_db',
     'get_session_local',
     'get_engine'

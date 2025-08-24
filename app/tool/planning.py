@@ -2,7 +2,7 @@
 from typing import Dict, List, Literal, Optional
 
 from app.exceptions import ToolError
-from app.tool.base import BaseTool, ToolResult
+from app.tool.base import BaseTool, ToolResult, ToolType, ContentSubject, DifficultyLevel
 
 
 _PLANNING_TOOL_DESCRIPTION = """
@@ -19,6 +19,15 @@ class PlanningTool(BaseTool):
 
     name: str = "planning"
     description: str = _PLANNING_TOOL_DESCRIPTION
+    tool_type: ToolType = ToolType.UTILITY
+    version: str = "2.0.0"
+    
+    # Tool capabilities
+    supported_subjects: List[ContentSubject] = [ContentSubject.GENERAL]
+    supported_difficulties: List[DifficultyLevel] = [DifficultyLevel.INTERMEDIATE]
+    
+    # Configuration
+    max_execution_time: float = 30.0
     parameters: dict = {
         "type": "object",
         "properties": {
@@ -132,6 +141,19 @@ class PlanningTool(BaseTool):
         if not title:
             raise ToolError("Parameter `title` is required for command: create")
 
+        # Validate title length and content
+        if len(title) > 100:
+            # Truncate title if it's too long
+            title = title[:97] + "..."
+            logger.warning(f"Title was too long, truncated to: {title}")
+        
+        # If title contains system instructions or is too verbose, create a cleaner one
+        if len(title.split()) > 15 or "Teie kohustused" in title or "Oled assistent" in title:
+            # Extract a cleaner title from the request or create a generic one
+            clean_title = f"Lesson Plan: {plan_id.split('_')[-1] if '_' in plan_id else 'New Topic'}"
+            title = clean_title
+            logger.warning(f"Title contained system instructions, replaced with: {title}")
+
         if (
             not steps
             or not isinstance(steps, list)
@@ -153,8 +175,18 @@ class PlanningTool(BaseTool):
         self.plans[plan_id] = plan
         self._current_plan_id = plan_id  # Set as active plan
 
+        from app.tool.base import ToolMetadata
+        
         return ToolResult(
-            output=f"Plan created successfully with ID: {plan_id}\n\n{self._format_plan(plan)}"
+            output=f"Plan created successfully with ID: {plan_id}\n\n{self._format_plan(plan)}",
+            success=True,
+            metadata=ToolMetadata(
+                tool_name="planning",
+                execution_time=0.0,
+                session_id="unknown",
+                step_index=-1,
+                success=True
+            )
         )
 
     def _update_plan(
@@ -170,6 +202,19 @@ class PlanningTool(BaseTool):
         plan = self.plans[plan_id]
 
         if title:
+            # Validate title length and content
+            if len(title) > 100:
+                # Truncate title if it's too long
+                title = title[:97] + "..."
+                logger.warning(f"Title was too long, truncated to: {title}")
+            
+            # If title contains system instructions or is too verbose, create a cleaner one
+            if len(title.split()) > 15 or "Teie kohustused" in title or "Oled assistent" in title:
+                # Extract a cleaner title from the request or create a generic one
+                clean_title = f"Lesson Plan: {plan_id.split('_')[-1] if '_' in plan_id else 'Updated Topic'}"
+                title = clean_title
+                logger.warning(f"Title contained system instructions, replaced with: {title}")
+            
             plan["title"] = title
 
         if steps:
@@ -203,15 +248,31 @@ class PlanningTool(BaseTool):
             plan["step_notes"] = new_notes
 
         return ToolResult(
-            output=f"Plan updated successfully: {plan_id}\n\n{self._format_plan(plan)}"
+            output=f"Plan updated successfully: {plan_id}\n\n{self._format_plan(plan)}",
+            success=True,
+            metadata=ToolMetadata(
+                tool_name="planning",
+                execution_time=0.0,
+                session_id="unknown",
+                step_index=-1,
+                success=True
+            )
         )
 
     def _list_plans(self) -> ToolResult:
         """List all available plans."""
         if not self.plans:
-            return ToolResult(
-                output="No plans available. Create a plan with the 'create' command."
+                    return ToolResult(
+            output="No plans available. Create a plan with the 'create' command.",
+            success=True,
+            metadata=ToolMetadata(
+                tool_name="planning",
+                execution_time=0.0,
+                session_id="unknown",
+                step_index=-1,
+                success=True
             )
+        )
 
         output = "Available plans:\n"
         for plan_id, plan in self.plans.items():
@@ -223,7 +284,17 @@ class PlanningTool(BaseTool):
             progress = f"{completed}/{total} steps completed"
             output += f"• {plan_id}{current_marker}: {plan['title']} - {progress}\n"
 
-        return ToolResult(output=output)
+        return ToolResult(
+            output=output,
+            success=True,
+            metadata=ToolMetadata(
+                tool_name="planning",
+                execution_time=0.0,
+                session_id="unknown",
+                step_index=-1,
+                success=True
+            )
+        )
 
     def _get_plan(self, plan_id: Optional[str]) -> ToolResult:
         """Get details of a specific plan."""
@@ -239,7 +310,17 @@ class PlanningTool(BaseTool):
             raise ToolError(f"No plan found with ID: {plan_id}")
 
         plan = self.plans[plan_id]
-        return ToolResult(output=self._format_plan(plan))
+        return ToolResult(
+            output=self._format_plan(plan),
+            success=True,
+            metadata=ToolMetadata(
+                tool_name="planning",
+                execution_time=0.0,
+                session_id="unknown",
+                step_index=-1,
+                success=True
+            )
+        )
 
     def _set_active_plan(self, plan_id: Optional[str]) -> ToolResult:
         """Set a plan as the active plan."""
@@ -251,7 +332,15 @@ class PlanningTool(BaseTool):
 
         self._current_plan_id = plan_id
         return ToolResult(
-            output=f"Plan '{plan_id}' is now the active plan.\n\n{self._format_plan(self.plans[plan_id])}"
+            output=f"Plan '{plan_id}' is now the active plan.\n\n{self._format_plan(self.plans[plan_id])}",
+            success=True,
+            metadata=ToolMetadata(
+                tool_name="planning",
+                execution_time=0.0,
+                session_id="unknown",
+                step_index=-1,
+                success=True
+            )
         )
 
     def _mark_step(
@@ -300,7 +389,15 @@ class PlanningTool(BaseTool):
             plan["step_notes"][step_index] = step_notes
 
         return ToolResult(
-            output=f"Step {step_index} updated in plan '{plan_id}'.\n\n{self._format_plan(plan)}"
+            output=f"Step {step_index} updated in plan '{plan_id}'.\n\n{self._format_plan(plan)}",
+            success=True,
+            metadata=ToolMetadata(
+                tool_name="planning",
+                execution_time=0.0,
+                session_id="unknown",
+                step_index=-1,
+                success=True
+            )
         )
 
     def _delete_plan(self, plan_id: Optional[str]) -> ToolResult:
@@ -317,7 +414,17 @@ class PlanningTool(BaseTool):
         if self._current_plan_id == plan_id:
             self._current_plan_id = None
 
-        return ToolResult(output=f"Plan '{plan_id}' has been deleted.")
+        return ToolResult(
+            output=f"Plan '{plan_id}' has been deleted.",
+            success=True,
+            metadata=ToolMetadata(
+                tool_name="planning",
+                execution_time=0.0,
+                session_id="unknown",
+                step_index=-1,
+                success=True
+            )
+        )
 
     def _format_plan(self, plan: Dict) -> str:
         """Format a plan for display."""

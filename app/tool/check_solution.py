@@ -1,7 +1,20 @@
-from app.tool.base import BaseTool
+"""
+Check Solution Tool - Migrated to Standardized Architecture
+Generates answers to questions/exercises using LLM and stores results.
+"""
+
+from app.tool.base import (
+    BaseTool, 
+    ToolType, 
+    DifficultyLevel, 
+    ContentSubject,
+    AssessmentInput,
+    AssessmentOutput,
+    StandardizedToolResult
+)
 from supabase import create_client, Client
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any, List
 from pydantic import Field
 import uuid
 import asyncio
@@ -37,84 +50,141 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 #SYSTEM_PROMPT, USER_PROMPT = get_prompt("check_solution")
 
 class CheckSolution(BaseTool):
+    """
+    Check Solution tool with standardized input/output handling.
+    Generates answers to questions/exercises using LLM and stores results.
+    """
+    
+    # Tool identification
     name: str = "check_solution"
-    description: str = """Generate an answer to the provided question/exercise using an LLM 
-    and store the question and answer in the database."""
-    session_id: Optional[str] = None
-
+    description: str = "Generate an answer to the provided question/exercise using an LLM"
+    tool_type: ToolType = ToolType.ASSESSMENT
+    version: str = "2.0.0"
+    
+    # Tool capabilities
+    supported_subjects: List[ContentSubject] = [
+        ContentSubject.MATH, 
+        ContentSubject.PHYSICS, 
+        ContentSubject.CHEMISTRY,
+        ContentSubject.BIOLOGY,
+        ContentSubject.GENERAL
+    ]
+    supported_difficulties: List[DifficultyLevel] = [
+        DifficultyLevel.BEGINNER,
+        DifficultyLevel.INTERMEDIATE,
+        DifficultyLevel.ADVANCED
+    ]
+    
+    # Configuration
+    max_execution_time: float = 30.0
     parameters: dict = {
         "type": "object",
         "properties": {
             "question": {
                 "type": "string",
-                "description": "(required) The question or exercise to be answered by the LLM",
+                "description": "The question or exercise to be answered by the LLM",
             },
             "session_id": {
                 "type": "string",
-                "description": "The session ID this step belongs to.",
+                "description": "Session ID this step belongs to",
             },
             "step_index": {
                 "type": "integer",
-                "description": "The current step index as a number ",
+                "description": "Current step index (0-based)",
+            },
+            "subject": {
+                "type": "string",
+                "enum": ["mathematics", "physics", "chemistry", "biology", "general"],
+                "description": "Subject category",
+            },
+            "difficulty": {
+                "type": "string",
+                "enum": ["beginner", "intermediate", "advanced"],
+                "description": "Difficulty level",
             }
         },
         "required": ["question", "session_id", "step_index"],
     }
     
-    supabase: Optional[Client] = Field(default_factory=lambda: create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL and SUPABASE_KEY) else None)
+    # Dependencies
+    supabase: Optional[Client] = Field(
+        default_factory=lambda: create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL and SUPABASE_KEY) else None
+    )
 
-    async def execute(self, question: str, **kwargs) -> str:
-        """
-        Generates an answer to the question using an LLM and stores it in the database.
-
-        Args:
-            question: The question/exercise string
-            **kwargs: Keyword arguments containing:
-                - session_id: The UUID of the session
-                - step_index: The current step index as a number (0-based)
-        """
-        # Extract and validate additional parameters
+    def _validate_input(self, kwargs: dict) -> AssessmentInput:
+        """Validate and convert input to AssessmentInput model."""
+        # Extract required fields
+        question = kwargs.get("question")
         session_id = kwargs.get("session_id")
         step_index = kwargs.get("step_index")
         
-        # If the caller didn't provide a step_index but we're in an agent with a current_step_index, use that
-        # This ensures we're always using the correct step index from the planning flow
-        import inspect
-        frame = inspect.currentframe()
-        try:
-            while frame:
-                if 'self' in frame.f_locals and hasattr(frame.f_locals['self'], 'current_step_index'):
-                    agent = frame.f_locals['self']
-                    if agent.current_step_index is not None and hasattr(agent, 'session_id'):
-                        print(f"Using step_index {agent.current_step_index} from agent instead of {step_index}")
-                        step_index = agent.current_step_index
-                        if not session_id and agent.session_id:
-                            session_id = agent.session_id
-                        break
-                frame = frame.f_back
-        finally:
-            del frame  # Avoid reference cycles
-
+        # Validate required fields
         if not all([question, session_id, step_index is not None]):
-            print(f"Missing parameters: question={question}, session_id={session_id}, step_index={step_index}")
-            return "Error: Missing required parameters"
+            raise ValueError("Missing required parameters: question, session_id, step_index")
+        
+        # Create AssessmentInput with defaults for optional fields
+        return AssessmentInput(
+            question=question,
+            session_id=session_id,
+            step_index=step_index,
+            expected_answer=kwargs.get("expected_answer"),
+            context=kwargs.get("context"),
+            user_id=kwargs.get("user_id")
+        )
 
-        # Ensure step_index is an integer
+    async def execute(self, input_data: AssessmentInput) -> AssessmentOutput:
+        """
+        Execute the check solution tool with standardized input/output.
+        
+        Args:
+            input_data: Validated AssessmentInput containing all necessary parameters
+            
+        Returns:
+            AssessmentOutput with structured assessment data
+        """
+        
+        # Generate unique assessment ID
+        assessment_id = str(uuid.uuid4())
+        
+        # Extract parameters
+        question = input_data.question
+        session_id = input_data.session_id
+        step_index = input_data.step_index
+
         try:
-            step_index = int(step_index)
-        except (ValueError, TypeError):
-            print(f"Invalid step_index: {step_index}")
-            return "Error: step_index must be a number"
-
-        # Validate session_id format (UUID)
-        try:
-            uuid.UUID(session_id)
-        except ValueError:
-            print(f"Invalid session_id: {session_id}")
-            return "Error: session_id must be a valid UUID"
-
-        # Store session_id for later use
-        self.session_id = session_id
+            # Generate answer using LLM
+            answer = await self._generate_answer(question)
+            
+            # Store result in database (optional)
+            await self._store_result(input_data, answer, assessment_id)
+            
+            # Create standardized output
+            return AssessmentOutput(
+                assessment_id=assessment_id,
+                question=question,
+                user_answer="",  # No user answer for solution generation
+                is_correct=True,  # Generated solution is always correct
+                score=1.0,
+                feedback=f"Generated solution: {answer}",
+                correct_answer=answer,
+                explanation="This is the solution generated by the LLM.",
+                suggestions=["Review the solution", "Practice similar problems"]
+            )
+            
+        except Exception as e:
+            print(f"Error in check solution: {e}")
+            # Return fallback output if everything fails
+            return AssessmentOutput(
+                assessment_id=assessment_id,
+                question=question,
+                user_answer="",
+                is_correct=False,
+                score=0.0,
+                feedback="Failed to generate solution",
+                correct_answer="Solution generation failed",
+                explanation="An error occurred while generating the solution.",
+                suggestions=["Try again", "Check the question format"]
+            )
 
         # Generate the answer using the LLM
         llm_answer = await self._get_llm_answer(question)

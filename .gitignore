@@ -386,3 +386,7 @@ dist/
 # Backup files
 *.sql.bak
 *.db.bak
+
+
+subject-guides.txt
+*.sql

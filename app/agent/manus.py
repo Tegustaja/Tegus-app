@@ -6,9 +6,8 @@ from pydantic import Field
 from app.agent.toolcall import ToolCallAgent
 from app.prompt.manus import NEXT_STEP_PROMPT, SYSTEM_PROMPT
 from app.tool import Terminate, ToolCollection
-from app.tool.rag_model import RagSearch
 from app.tool.check_solution import CheckSolution
-from app.tool.multiple_choise_exercise import MultipleChoiceExercise
+from app.tool.multiple_choice_exercise import MultipleChoiceExercise
 from app.tool.true_false_exercise import TrueFalseExercise
 from app.tool.calculation_exercise import CalculationExercise
 
@@ -38,7 +37,7 @@ class Manus(ToolCallAgent):
     # Add general-purpose tools to the tool collection
     available_tools: ToolCollection = Field(
         default_factory=lambda: ToolCollection(
-            Terminate(), RagSearch(), CheckSolution(), MultipleChoiceExercise(), TrueFalseExercise(), CalculationExercise()
+            Terminate(), CheckSolution(), MultipleChoiceExercise(), TrueFalseExercise(), CalculationExercise()
         )
     )
 
@@ -48,6 +47,15 @@ class Manus(ToolCallAgent):
         else:
             await super()._handle_special_tool(name, result, **kwargs)
 
+    async def initialize(self):
+        """Initialize the agent with prompts from database"""
+        try:
+            from app.prompt.manus import initialize_prompts
+            await initialize_prompts()
+        except Exception as e:
+            print(f"Failed to initialize prompts: {e}")
+            # Continue with default prompts
+    
     async def _handle_terminate_tool(self, step_responses=None, session_id=None, status="success"):
         # Handle case when terminate is called early (before steps are finished)
         if step_responses is None or session_id is None:
